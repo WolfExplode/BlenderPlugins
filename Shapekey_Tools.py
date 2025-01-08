@@ -190,8 +190,12 @@ class ShapekeyTransferOperator(bpy.types.Operator):
                 target_object.data.shape_keys.key_blocks[-1].name = key.name
 
             target_object.data.shape_keys.key_blocks[key.name].value = 1.0
-
-            for vert_src, vert_tgt in zip(key.data, target_object.data.shape_keys.key_blocks[key.name].data):
+            
+            target_key = target_object.data.shape_keys.key_blocks[key.name]
+            target_key.slider_min = key.slider_min
+            target_key.slider_max = key.slider_max
+            
+            for vert_src, vert_tgt in zip(key.data, target_key.data):
                 vert_tgt.co = vert_src.co
 
         for key in target_object.data.shape_keys.key_blocks:
