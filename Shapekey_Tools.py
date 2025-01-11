@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Shapekey Tools",
+    "name": "my Shapekey Tools",
     "author": "WXP, Claude",
     "version": (1, 0, 0),
     "blender": (4, 1, 0),
@@ -130,18 +130,32 @@ class ShapekeyToolsPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'Tool'
 
+    @staticmethod
+    def has_valid_shape_keys(obj):
+        return (obj and 
+                hasattr(obj, 'data') and 
+                hasattr(obj.data, 'shape_keys') and 
+                obj.data.shape_keys is not None and 
+                obj.data.shape_keys.key_blocks)
+
     def draw(self, context):
         layout = self.layout
         
+        # Swap Shapekeys section
         box = layout.box()
         box.label(text="Swap Shapekeys")
-        if context.active_object and context.active_object.data.shape_keys:
+        
+        active_obj = context.active_object
+        if self.has_valid_shape_keys(active_obj):
             row = box.row()
-            row.prop_search(context.active_object, "active_shape_key", 
-                          context.active_object.data.shape_keys, "key_blocks", 
+            row.prop_search(active_obj, "active_shape_key", 
+                          active_obj.data.shape_keys, "key_blocks", 
                           text="Shape Key")
             box.operator("object.swap_basis_shapekey", text="Swap with Basis")
+        else:
+            box.label(text="No shape keys found", icon='INFO')
         
+        # Copy Shapekeys section
         box = layout.box()
         box.label(text="Copy Shapekeys")
         row = box.row(align=True)
@@ -152,13 +166,15 @@ class ShapekeyToolsPanel(bpy.types.Panel):
         row.prop_search(context.scene, "shapekey_target", context.scene, "objects", text="Target")
         row.operator("object.pick_target_object", text="", icon='EYEDROPPER')
         
-        box.operator("object.shapekey_transfer", text="Copy Shapekeys")
+        source_obj = context.scene.shapekey_source
+        target_obj = context.scene.shapekey_target
         
-        box.operator("object.transfer_shape_keys", text="Transfer Values")
-        if context.active_object and context.active_object.data.shape_keys:
+        if source_obj and target_obj:
+            box.operator("object.shapekey_transfer", text="Copy Shapekeys")
+            box.operator("object.transfer_shape_keys", text="Transfer Values")
+        
+        if self.has_valid_shape_keys(active_obj):
             box.operator("object.reset_target_shape_keys", text="Reset Values")
-        
-        if context.active_object and context.active_object.data.shape_keys:
             box.operator("object.remove_zero_shapekeys", text="Remove Zero Value Keys")
 
 class ShapekeyTransferOperator(bpy.types.Operator):
