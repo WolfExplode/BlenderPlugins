@@ -1,7 +1,7 @@
 bl_info = {
     "name": "my Shapekey Tools",
-    "author": "WXP, Claude",
-    "version": (1, 0, 0),
+    "author": "WXP, Deepseek R1",
+    "version": (1, 0, 2),
     "blender": (4, 1, 0),
     "location": "View3D > Sidebar > Tool",
     "description": "Tools for managing and transferring shape keys",
@@ -186,12 +186,18 @@ class ShapekeyToolsPanel(bpy.types.Panel):
             row.prop_search(scene, "shapekey_target", scene, "objects", text="Target")
             row.operator("object.pick_target_object", text="", icon='EYEDROPPER')
         else:
-            row = box.row(align=True)
-            row.prop_search(scene, "shapekey_target_collection", bpy.data, "collections", text="Collection")
+            # Show selected objects count instead of collection picker
+            valid_targets = [
+                obj for obj in context.selected_objects 
+                if obj != scene.shapekey_source and 
+                obj.type == 'MESH' and 
+                obj.data.shape_keys
+            ]
+            box.label(text=f"Selected Objects: {len(valid_targets)}", icon='OBJECT_DATA')
         
         # Buttons section
         if scene.shapekey_source and ((scene.shapekey_target_type == 'SINGLE' and scene.shapekey_target) or 
-                                     (scene.shapekey_target_type == 'COLLECTION' and scene.shapekey_target_collection)):
+                                     (scene.shapekey_target_type == 'MULTIPLE' and len(context.selected_objects) > 1)):
             box.operator("object.shapekey_transfer", text="Copy Shapekeys")
             box.operator("object.transfer_shape_keys", text="Transfer Values")
         
@@ -215,8 +221,12 @@ class ShapekeyTransferOperator(bpy.types.Operator):
             if scene.shapekey_target:
                 targets.append(scene.shapekey_target)
         else:
-            if scene.shapekey_target_collection:
-                targets = scene.shapekey_target_collection.objects
+            # Get valid selected targets
+                targets = [
+                    obj for obj in context.selected_objects 
+                    if obj != source_object and 
+                    obj.type == 'MESH'
+                ]
         
         if not source_object or not targets:
             self.report({'ERROR'}, "Please select both source and target(s).")
@@ -295,17 +305,22 @@ class OBJECT_OT_transfer_shape_keys(Operator):
             if scene.shapekey_target:
                 targets.append(scene.shapekey_target)
         else:
-            if scene.shapekey_target_collection:
-                targets = scene.shapekey_target_collection.objects
+            # Get all selected objects excluding source
+                targets = [
+                    obj for obj in context.selected_objects 
+                    if obj != source and 
+                    obj.type == 'MESH' and 
+                    obj.data.shape_keys
+                ]
         
         if not source or not targets:
-            self.report({'ERROR'}, "Missing source or targets")
+            self.report({'ERROR'}, "Missing source or valid targets")
             return {'CANCELLED'}
         
         for target in targets:
-            if target.type == 'MESH' and target.data.shape_keys:
-                transfer_shape_key_values(source.name, target_obj_name=target.name)
+            transfer_shape_key_values(source.name, target_obj_name=target.name)
         
+        self.report({'INFO'}, f"Transferred values to {len(targets)} objects")
         return {'FINISHED'}
 
 class OBJECT_OT_reset_shape_keys(Operator):
@@ -379,13 +394,11 @@ def register():
     bpy.types.Scene.shapekey_target = PointerProperty(type=bpy.types.Object, name="Target Object")
     bpy.types.Scene.shapekey_target_type = EnumProperty(
         name="Target Type",
-        items=[('SINGLE', 'Single Object', 'Transfer to a single object'),
-               ('COLLECTION', 'Collection', 'Transfer to all objects in a collection')],
+        items=[
+            ('SINGLE', 'Single Object', 'Transfer to a single object'),
+            ('MULTIPLE', 'Multiple Objects', 'Transfer to all selected objects')
+        ],
         default='SINGLE'
-    )
-    bpy.types.Scene.shapekey_target_collection = PointerProperty(
-        type=bpy.types.Collection,
-        name="Target Collection"
     )
 
 def unregister():
@@ -394,7 +407,6 @@ def unregister():
     del bpy.types.Scene.shapekey_source
     del bpy.types.Scene.shapekey_target
     del bpy.types.Scene.shapekey_target_type
-    del bpy.types.Scene.shapekey_target_collection
 
 if __name__ == "__main__":
     register()
