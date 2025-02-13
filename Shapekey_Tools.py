@@ -20,7 +20,7 @@ def show_message(message: str, title: str = "Message", icon: str = 'INFO'):
 def transfer_shape_key_values(source_obj_name, target_obj_name=None, target_collection=None, show_messages=True):
     """
     Transfer shape key values from source object to target object(s)
-    Supports both single object and collection targets
+    Supports both single object and selected objects
     """
     source_obj = bpy.data.objects.get(source_obj_name)
     
@@ -57,7 +57,11 @@ def transfer_shape_key_values(source_obj_name, target_obj_name=None, target_coll
         
         for source_key in source_keys:
             if source_key.name in target_keys:
-                target_keys[source_key.name].value = source_key.value
+                target_key = target_keys[source_key.name]
+                target_key.value = source_key.value
+                # Transfer min/max range
+                target_key.slider_min = source_key.slider_min
+                target_key.slider_max = source_key.slider_max
                 transferred += 1
             else:
                 skipped += 1
