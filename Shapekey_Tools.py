@@ -10,51 +10,62 @@ bl_info = {
 
 import bpy
 from bpy.types import Panel, Operator
-from bpy.props import PointerProperty
+from bpy.props import PointerProperty, EnumProperty
 
 def show_message(message: str, title: str = "Message", icon: str = 'INFO'):
     def draw(self, context):
         self.layout.label(text=message)
     bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
 
-def transfer_shape_key_values(source_obj_name, target_obj_name, show_messages=True):
+def transfer_shape_key_values(source_obj_name, target_obj_name=None, target_collection=None, show_messages=True):
     """
-    Transfer shape key values from source object to target object
-    Both objects must have shape keys with matching names
+    Transfer shape key values from source object to target object(s)
+    Supports both single object and collection targets
     """
     source_obj = bpy.data.objects.get(source_obj_name)
-    target_obj = bpy.data.objects.get(target_obj_name)
     
     if not source_obj:
         if show_messages:
             show_message(f"Cannot find source object named '{source_obj_name}'!", "Error", 'ERROR')
         return
+    
+    targets = []
+    if target_obj_name:
+        target_obj = bpy.data.objects.get(target_obj_name)
+        if target_obj:
+            targets.append(target_obj)
+    elif target_collection:
+        targets = [obj for obj in target_collection.objects if obj.type == 'MESH']
+    
+    valid_targets = []
+    for obj in targets:
+        if obj and obj.data.shape_keys:
+            valid_targets.append(obj)
+    
+    if not valid_targets:
+        if show_messages:
+            show_message("No valid targets found!", "Error", 'ERROR')
+        return
+    
+    transferred_total = 0
+    for target_obj in valid_targets:
+        source_keys = source_obj.data.shape_keys.key_blocks
+        target_keys = target_obj.data.shape_keys.key_blocks
         
-    if not target_obj:
-        if show_messages:
-            show_message(f"Cannot find target object named '{target_obj_name}'!", "Error", 'ERROR')
-        return
-    
-    if not (source_obj.data.shape_keys and target_obj.data.shape_keys):
-        if show_messages:
-            show_message("Both objects must have shape keys!", "Error", 'ERROR')
-        return
-    
-    source_keys = source_obj.data.shape_keys.key_blocks
-    target_keys = target_obj.data.shape_keys.key_blocks
-    
-    transferred = 0
-    skipped = 0
-    
-    for source_key in source_keys:
-        if source_key.name in target_keys:
-            target_keys[source_key.name].value = source_key.value
-            transferred += 1
-        else:
-            skipped += 1
+        transferred = 0
+        skipped = 0
+        
+        for source_key in source_keys:
+            if source_key.name in target_keys:
+                target_keys[source_key.name].value = source_key.value
+                transferred += 1
+            else:
+                skipped += 1
+        
+        transferred_total += transferred
     
     if show_messages:
-        message = f"Transferred {transferred} shape keys"
+        message = f"Transferred to {len(valid_targets)} objects, {transferred_total} total keys"
         if skipped > 0:
             message += f", skipped {skipped} non-matching keys"
         show_message(message, "Success", 'INFO')
@@ -140,6 +151,7 @@ class ShapekeyToolsPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        scene = context.scene
         
         # Swap Shapekeys section
         box = layout.box()
@@ -158,21 +170,32 @@ class ShapekeyToolsPanel(bpy.types.Panel):
         # Copy Shapekeys section
         box = layout.box()
         box.label(text="Copy Shapekeys")
+        
+        # Target type selector
+        row = box.row()
+        row.prop(scene, "shapekey_target_type", expand=True)
+        
+        # Source selection
         row = box.row(align=True)
-        row.prop_search(context.scene, "shapekey_source", context.scene, "objects", text="Source")
+        row.prop_search(scene, "shapekey_source", scene, "objects", text="Source")
         row.operator("object.pick_source_object", text="", icon='EYEDROPPER')
         
-        row = box.row(align=True)
-        row.prop_search(context.scene, "shapekey_target", context.scene, "objects", text="Target")
-        row.operator("object.pick_target_object", text="", icon='EYEDROPPER')
+        # Target selection based on type
+        if scene.shapekey_target_type == 'SINGLE':
+            row = box.row(align=True)
+            row.prop_search(scene, "shapekey_target", scene, "objects", text="Target")
+            row.operator("object.pick_target_object", text="", icon='EYEDROPPER')
+        else:
+            row = box.row(align=True)
+            row.prop_search(scene, "shapekey_target_collection", bpy.data, "collections", text="Collection")
         
-        source_obj = context.scene.shapekey_source
-        target_obj = context.scene.shapekey_target
-        
-        if source_obj and target_obj:
+        # Buttons section
+        if scene.shapekey_source and ((scene.shapekey_target_type == 'SINGLE' and scene.shapekey_target) or 
+                                     (scene.shapekey_target_type == 'COLLECTION' and scene.shapekey_target_collection)):
             box.operator("object.shapekey_transfer", text="Copy Shapekeys")
             box.operator("object.transfer_shape_keys", text="Transfer Values")
         
+        # Reset buttons
         if self.has_valid_shape_keys(active_obj):
             box.operator("object.reset_target_shape_keys", text="Reset Values")
             box.operator("object.remove_zero_shapekeys", text="Remove Zero Value Keys")
@@ -180,44 +203,56 @@ class ShapekeyToolsPanel(bpy.types.Panel):
 class ShapekeyTransferOperator(bpy.types.Operator):
     bl_idname = "object.shapekey_transfer"
     bl_label = "Transfer Shapekeys"
-    bl_description = "Transfer shapekeys from source to target object"
+    bl_description = "Transfer shapekeys from source to target object(s)"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        source_object = context.scene.shapekey_source
-        target_object = context.scene.shapekey_target
-
-        if source_object is None or target_object is None:
-            self.report({'ERROR'}, "Please select both source and target objects.")
+        scene = context.scene
+        source_object = scene.shapekey_source
+        targets = []
+        
+        if scene.shapekey_target_type == 'SINGLE':
+            if scene.shapekey_target:
+                targets.append(scene.shapekey_target)
+        else:
+            if scene.shapekey_target_collection:
+                targets = scene.shapekey_target_collection.objects
+        
+        if not source_object or not targets:
+            self.report({'ERROR'}, "Please select both source and target(s).")
             return {'CANCELLED'}
 
         if not source_object.data.shape_keys:
             self.report({'ERROR'}, f"'{source_object.name}' does not have shape keys.")
             return {'CANCELLED'}
 
-        bpy.context.view_layer.objects.active = target_object
-
-        for key in source_object.data.shape_keys.key_blocks:
-            if target_object.data.shape_keys is None:
-                bpy.ops.object.shape_key_add(from_mix=False)
-
-            if key.name not in target_object.data.shape_keys.key_blocks:
-                bpy.ops.object.shape_key_add(from_mix=False)
-                target_object.data.shape_keys.key_blocks[-1].name = key.name
-
-            target_object.data.shape_keys.key_blocks[key.name].value = 1.0
+        for target_object in targets:
+            if target_object.type != 'MESH':
+                continue
             
-            target_key = target_object.data.shape_keys.key_blocks[key.name]
-            target_key.slider_min = key.slider_min
-            target_key.slider_max = key.slider_max
-            
-            for vert_src, vert_tgt in zip(key.data, target_key.data):
-                vert_tgt.co = vert_src.co
+            bpy.context.view_layer.objects.active = target_object
 
-        for key in target_object.data.shape_keys.key_blocks:
-            key.value = 0.0
+            for key in source_object.data.shape_keys.key_blocks:
+                if target_object.data.shape_keys is None:
+                    bpy.ops.object.shape_key_add(from_mix=False)
 
-        self.report({'INFO'}, f"Shape keys copied from '{source_object.name}' to '{target_object.name}'. All shape key values set to 0.")
+                if key.name not in target_object.data.shape_keys.key_blocks:
+                    bpy.ops.object.shape_key_add(from_mix=False)
+                    target_object.data.shape_keys.key_blocks[-1].name = key.name
+
+                target_object.data.shape_keys.key_blocks[key.name].value = 1.0
+                
+                target_key = target_object.data.shape_keys.key_blocks[key.name]
+                target_key.slider_min = key.slider_min
+                target_key.slider_max = key.slider_max
+                
+                for vert_src, vert_tgt in zip(key.data, target_key.data):
+                    vert_tgt.co = vert_src.co
+
+            for key in target_object.data.shape_keys.key_blocks:
+                key.value = 0.0
+
+        self.report({'INFO'}, f"Shape keys copied from '{source_object.name}' to {len(targets)} target(s). All shape key values set to 0.")
         return {'FINISHED'}
 
 class RemoveZeroShapekeysOperator(bpy.types.Operator):
@@ -249,13 +284,28 @@ class RemoveZeroShapekeysOperator(bpy.types.Operator):
 class OBJECT_OT_transfer_shape_keys(Operator):
     bl_idname = "object.transfer_shape_keys"
     bl_label = "Transfer Values"
-    bl_description = "Transfer shape key values from source to target"
+    bl_description = "Transfer shape key values from source to target(s)"
     
     def execute(self, context):
-        source_object = context.scene.shapekey_source
-        target_object = context.scene.shapekey_target
-        if source_object and target_object:
-            transfer_shape_key_values(source_object.name, target_object.name)
+        scene = context.scene
+        source = scene.shapekey_source
+        targets = []
+        
+        if scene.shapekey_target_type == 'SINGLE':
+            if scene.shapekey_target:
+                targets.append(scene.shapekey_target)
+        else:
+            if scene.shapekey_target_collection:
+                targets = scene.shapekey_target_collection.objects
+        
+        if not source or not targets:
+            self.report({'ERROR'}, "Missing source or targets")
+            return {'CANCELLED'}
+        
+        for target in targets:
+            if target.type == 'MESH' and target.data.shape_keys:
+                transfer_shape_key_values(source.name, target_obj_name=target.name)
+        
         return {'FINISHED'}
 
 class OBJECT_OT_reset_shape_keys(Operator):
@@ -327,12 +377,24 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Scene.shapekey_source = PointerProperty(type=bpy.types.Object, name="Source Object")
     bpy.types.Scene.shapekey_target = PointerProperty(type=bpy.types.Object, name="Target Object")
+    bpy.types.Scene.shapekey_target_type = EnumProperty(
+        name="Target Type",
+        items=[('SINGLE', 'Single Object', 'Transfer to a single object'),
+               ('COLLECTION', 'Collection', 'Transfer to all objects in a collection')],
+        default='SINGLE'
+    )
+    bpy.types.Scene.shapekey_target_collection = PointerProperty(
+        type=bpy.types.Collection,
+        name="Target Collection"
+    )
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.shapekey_source
     del bpy.types.Scene.shapekey_target
+    del bpy.types.Scene.shapekey_target_type
+    del bpy.types.Scene.shapekey_target_collection
 
 if __name__ == "__main__":
     register()
