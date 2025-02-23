@@ -1,4 +1,5 @@
 import bpy
+import json
 
 def get_all_objects_in_collection(coll):
     """Get all objects in a collection and its child collections"""
@@ -186,6 +187,44 @@ class VIEW3D_PT_ShowObjectDisplay(bpy.types.Panel):
         col = row.column(align=True)
         col.operator(TAGCOLOR_OT_AddEntry.bl_idname, icon='ADD', text="")
         col.operator(TAGCOLOR_OT_RemoveEntry.bl_idname, icon='REMOVE', text="")
+        
+        # Add copy/paste buttons after the list
+        row = layout.row(align=True)
+        row.operator(TAGCOLOR_OT_CopySettings.bl_idname, icon='COPYDOWN')
+        row.operator(TAGCOLOR_OT_PasteSettings.bl_idname, icon='PASTEDOWN')
+
+class TAGCOLOR_OT_CopySettings(bpy.types.Operator):
+    bl_idname = "tagcolor.copy_settings"
+    bl_label = "Copy Color Mappings"
+    
+    def execute(self, context):
+        pairs = context.scene.tag_color_pairs
+        data = [{"tag": p.tag, "color": list(p.color)} for p in pairs]
+        context.window_manager.clipboard = json.dumps(data)
+        self.report({'INFO'}, "Copied color mappings to clipboard")
+        return {'FINISHED'}
+
+class TAGCOLOR_OT_PasteSettings(bpy.types.Operator):
+    bl_idname = "tagcolor.paste_settings"
+    bl_label = "Paste Color Mappings"
+    
+    def execute(self, context):
+        try:
+            data = json.loads(context.window_manager.clipboard)
+            pairs = context.scene.tag_color_pairs
+            pairs.clear()
+            
+            for item in data:
+                new_pair = pairs.add()
+                new_pair.tag = item.get('tag', '')
+                color = item.get('color', [1, 1, 1, 1])
+                new_pair.color = [max(0.0, min(1.0, c)) for c in color][:4]
+                
+            self.report({'INFO'}, "Pasted color mappings from clipboard")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, "Invalid clipboard data")
+            return {'CANCELLED'}
 
 def register():
     bpy.types.Scene.selected_collection = bpy.props.PointerProperty(
@@ -221,6 +260,8 @@ def register():
     bpy.utils.register_class(TagColorPair)
     bpy.types.Scene.tag_color_pairs = bpy.props.CollectionProperty(type=TagColorPair)
     bpy.types.Scene.active_tag_color_index = bpy.props.IntProperty()
+    bpy.utils.register_class(TAGCOLOR_OT_CopySettings)
+    bpy.utils.register_class(TAGCOLOR_OT_PasteSettings)
     
     bpy.utils.register_class(TAGCOLOR_UL_List)
     bpy.utils.register_class(TAGCOLOR_OT_AddEntry)
@@ -243,6 +284,8 @@ def unregister():
     bpy.utils.unregister_class(TAGCOLOR_OT_RemoveEntry)
     bpy.utils.unregister_class(VIEW3D_PT_ShowObjectDisplay)
     bpy.utils.unregister_class(OBJECT_OT_CollectionPicker)
+    bpy.utils.unregister_class(TAGCOLOR_OT_CopySettings)
+    bpy.utils.unregister_class(TAGCOLOR_OT_PasteSettings)
 
 if __name__ == "__main__":
     register()
