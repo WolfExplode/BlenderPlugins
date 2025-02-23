@@ -272,27 +272,28 @@ class ShapekeyTransferOperator(bpy.types.Operator):
 class RemoveZeroShapekeysOperator(bpy.types.Operator):
     bl_idname = "object.remove_zero_shapekeys"
     bl_label = "Remove Zero Value Shapekeys"
-    bl_description = "Remove all shape keys with a value of 0 from the selected object"
+    bl_description = "Remove all shape keys with a value of 0 from selected objects"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        active_obj = context.active_object
-
-        if not active_obj:
-            self.report({'ERROR'}, "No active object selected.")
-            return {'CANCELLED'}
-
-        if not active_obj.data.shape_keys:
-            self.report({'ERROR'}, f"'{active_obj.name}' does not have any shape keys.")
-            return {'CANCELLED'}
-
-        keys_to_remove = [key.name for key in active_obj.data.shape_keys.key_blocks[1:] 
-                         if abs(key.value) < 0.0001]
+        removed_total = 0
+        processed_objects = 0
         
-        for key_name in keys_to_remove:
-            active_obj.shape_key_remove(active_obj.data.shape_keys.key_blocks[key_name])
+        for obj in context.selected_objects:
+            if obj.type != 'MESH' or not obj.data.shape_keys:
+                continue
+            
+            keys_to_remove = [key.name for key in obj.data.shape_keys.key_blocks[1:] 
+                            if abs(key.value) < 0.0001]
+            
+            # Remove keys in reverse to avoid index issues
+            for key_name in reversed(keys_to_remove):
+                obj.shape_key_remove(obj.data.shape_keys.key_blocks[key_name])
+            
+            removed_total += len(keys_to_remove)
+            processed_objects += 1
 
-        self.report({'INFO'}, f"Removed {len(keys_to_remove)} zero-value shape keys from '{active_obj.name}'.")
+        self.report({'INFO'}, f"Removed {removed_total} keys from {processed_objects} objects")
         return {'FINISHED'}
 
 class OBJECT_OT_transfer_shape_keys(Operator):
@@ -330,12 +331,27 @@ class OBJECT_OT_transfer_shape_keys(Operator):
 class OBJECT_OT_reset_shape_keys(Operator):
     bl_idname = "object.reset_target_shape_keys"
     bl_label = "Reset Values"
-    bl_description = "Reset all shape key values to zero on selected object"
+    bl_description = "Reset all shape key values to zero on selected objects"
     
     def execute(self, context):
-        active_obj = context.active_object
-        if active_obj:
-            reset_shape_keys(active_obj.name)
+        reset_count = 0
+        processed_objects = 0
+        
+        for obj in context.selected_objects:
+            if obj.type != 'MESH' or not obj.data.shape_keys:
+                continue
+            
+            key_blocks = obj.data.shape_keys.key_blocks
+            if len(key_blocks) <= 1:
+                continue
+            
+            for key_block in key_blocks[1:]:
+                key_block.value = 0.0
+                reset_count += 1
+            
+            processed_objects += 1
+
+        show_message(f"Reset {reset_count} keys across {processed_objects} objects", "Success", 'INFO')
         return {'FINISHED'}
 
 class PICK_OT_source_object(Operator):
