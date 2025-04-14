@@ -1,16 +1,17 @@
 bl_info = {
     "name": "my Shapekey Tools",
     "author": "WXP, Deepseek R1",
-    "version": (1, 0, 2),
+    "version": (1, 1, 0),  # Updated version
     "blender": (4, 1, 0),
     "location": "View3D > Sidebar > Tool",
-    "description": "Tools for managing and transferring shape keys",
+    "description": "Tools for managing, transferring and presetting shape keys",
     "category": "Object"
 }
 
 import bpy
+import re
 from bpy.types import Panel, Operator
-from bpy.props import PointerProperty, EnumProperty
+from bpy.props import (PointerProperty, EnumProperty, StringProperty)
 
 def show_message(message: str, title: str = "Message", icon: str = 'INFO'):
     def draw(self, context):
@@ -138,6 +139,197 @@ def swap_basis_with_shape_key(obj, shape_key_name):
 
     show_message(f"Swapped basis with '{shape_key_name}' (names and coordinates)", "Success", 'INFO')
 
+
+PRESET_TEXT_BLOCK_NAME = "ShapekeyPresets"
+
+def get_presets_data():
+    presets = {}
+    text_block = bpy.data.texts.get(PRESET_TEXT_BLOCK_NAME)
+    
+    if text_block:
+        current_preset = None
+        for line in text_block.lines:
+            line = line.body.strip()
+            
+            # New preset section
+            if line.startswith('[') and line.endswith(']'):
+                current_preset = line[1:-1]
+                presets[current_preset] = {}
+            
+            # Key-value pair
+            elif current_preset and '=' in line:
+                key, value = line.split('=', 1)
+                presets[current_preset][key.strip()] = float(value.strip())
+    
+    return presets
+
+def save_preset_to_file(preset_name, shape_keys):
+    # Get or create text block
+    text_block = bpy.data.texts.get(PRESET_TEXT_BLOCK_NAME)
+    if not text_block:
+        text_block = bpy.data.texts.new(PRESET_TEXT_BLOCK_NAME)
+    
+    # Remove existing preset with same name
+    lines = text_block.as_string().split('\n')
+    new_lines = []
+    skip_lines = False
+    for line in lines:
+        if line.strip() == f'[{preset_name}]':
+            skip_lines = True
+            continue
+        if skip_lines:
+            if line.strip().startswith('['):
+                skip_lines = False
+                new_lines.append(line)
+            continue
+        new_lines.append(line)
+    
+    # Add new preset data
+    new_lines.append(f'\n[{preset_name}]')
+    for key in shape_keys:
+        if key.name == "Basis":
+            continue
+        new_lines.append(f"{key.name} = {key.value}")
+    
+    text_block.clear()
+    text_block.write('\n'.join(new_lines).strip())
+
+class SaveShapekeyPresetOperator(Operator):
+    bl_idname = "object.save_shapekey_preset"
+    bl_label = "Save Shapekey Preset"
+    bl_description = "Save current shape key values as a preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+        if not obj or not obj.data.shape_keys:
+            self.report({'ERROR'}, "Active object has no shape keys")
+            return {'CANCELLED'}
+
+        preset_name = context.scene.shapekey_preset_name.strip()
+        if not preset_name:
+            self.report({'ERROR'}, "Preset name cannot be empty")
+            return {'CANCELLED'}
+
+        shape_keys = obj.data.shape_keys.key_blocks[1:]  # Exclude Basis
+        if not shape_keys:
+            self.report({'ERROR'}, "No shape keys to save")
+            return {'CANCELLED'}
+
+        save_preset_to_file(preset_name, shape_keys)
+        self.report({'INFO'}, f"Preset '{preset_name}' saved")
+        return {'FINISHED'}
+
+class LoadShapekeyPresetOperator(Operator):
+    bl_idname = "object.load_shapekey_preset"
+    bl_label = "Load Shapekey Preset"
+    bl_description = "Load selected shape key preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+        preset_name = context.scene.shapekey_presets_enum
+        
+        if not obj or not obj.data.shape_keys:
+            self.report({'ERROR'}, "Active object has no shape keys")
+            return {'CANCELLED'}
+            
+        presets = get_presets_data()
+        if not presets or preset_name not in presets:
+            self.report({'ERROR'}, "Preset not found")
+            return {'CANCELLED'}
+
+        key_blocks = obj.data.shape_keys.key_blocks
+        applied = 0
+        missing = []
+        
+        for key_name, value in presets[preset_name].items():
+            if key_name in key_blocks:
+                key_blocks[key_name].value = value
+                applied += 1
+            else:
+                missing.append(key_name)
+
+        msg = f"Applied {applied} values from '{preset_name}'"
+        if missing:
+            msg += f" | Missing keys: {', '.join(missing)}"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+class DeleteShapekeyPresetOperator(Operator):
+    bl_idname = "object.delete_shapekey_preset"
+    bl_label = "Delete Shapekey Preset"
+    bl_description = "Delete selected shape key preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        preset_name = context.scene.shapekey_presets_enum
+        text_block = bpy.data.texts.get(PRESET_TEXT_BLOCK_NAME)
+        
+        if not text_block:
+            self.report({'ERROR'}, "No presets exist")
+            return {'CANCELLED'}
+            
+        # Rewrite text block without the deleted preset
+        lines = text_block.as_string().split('\n')
+        new_lines = []
+        skip_lines = False
+        
+        for line in lines:
+            line = line.strip()
+            if line == f'[{preset_name}]':
+                skip_lines = True
+                continue
+            if skip_lines:
+                if line.startswith('['):
+                    skip_lines = False
+                    new_lines.append(line)
+                continue
+            new_lines.append(line)
+        
+        text_block.clear()
+        text_block.write('\n'.join(new_lines).strip())
+        self.report({'INFO'}, f"Deleted preset '{preset_name}'")
+        return {'FINISHED'}
+
+def get_preset_items(self, context):
+    presets = get_presets_data()
+    items = [(k, k, "") for k in presets.keys()]
+    if not items:
+        items.append(('NONE', 'No Presets Available', ''))
+    return items
+
+class ShapekeyPresetsPanel(Panel):
+    bl_label = "Shapekey Presets"
+    bl_idname = "PT_ShapekeyPresets"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Tool'
+    bl_order = 1  # Display after main panel
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        box = layout.box()
+        box.label(text="Preset Management")
+        
+        # Save Preset
+        row = box.row()
+        row.prop(scene, "shapekey_preset_name", text="Name")
+        row.operator("object.save_shapekey_preset", text="", icon='EXPORT')
+        
+        # Load/Delete Preset
+        if get_presets_data():
+            box.label(text="Available Presets:")
+            row = box.row()
+            row.prop(scene, "shapekey_presets_enum", text="")
+            row = box.row(align=True)
+            row.operator("object.load_shapekey_preset", text="Load", icon='IMPORT')
+            row.operator("object.delete_shapekey_preset", text="Delete", icon='TRASH')
+        else:
+            box.label(text="No presets saved yet", icon='INFO')
+
 class ShapekeyToolsPanel(bpy.types.Panel):
     bl_label = "Shapekey Tools"
     bl_idname = "PT_ShapekeyTools"
@@ -263,10 +455,7 @@ class ShapekeyTransferOperator(bpy.types.Operator):
                 for vert_src, vert_tgt in zip(key.data, target_key.data):
                     vert_tgt.co = vert_src.co
 
-            for key in target_object.data.shape_keys.key_blocks:
-                key.value = 0.0
-
-        self.report({'INFO'}, f"Shape keys copied from '{source_object.name}' to {len(targets)} target(s). All shape key values set to 0.")
+        self.report({'INFO'}, f"Shape keys copied from '{source_object.name}' to {len(targets)} target(s)")
         return {'FINISHED'}
 
 class RemoveZeroShapekeysOperator(bpy.types.Operator):
@@ -405,6 +594,10 @@ classes = (
     PICK_OT_source_object,
     PICK_OT_target_object,
     SwapBasisShapekeyOperator,
+    ShapekeyPresetsPanel,
+    SaveShapekeyPresetOperator,
+    LoadShapekeyPresetOperator,
+    DeleteShapekeyPresetOperator,
 )
 
 def register():
@@ -420,6 +613,16 @@ def register():
         ],
         default='SINGLE'
     )
+    bpy.types.Scene.shapekey_preset_name = StringProperty(
+        name="Preset Name",
+        description="Name for new shape key preset",
+        default="MyPreset"
+    )
+    bpy.types.Scene.shapekey_presets_enum = EnumProperty(
+        name="Presets",
+        description="Available shape key presets",
+        items=get_preset_items
+    )
 
 def unregister():
     for cls in reversed(classes):
@@ -427,6 +630,8 @@ def unregister():
     del bpy.types.Scene.shapekey_source
     del bpy.types.Scene.shapekey_target
     del bpy.types.Scene.shapekey_target_type
+    del bpy.types.Scene.shapekey_preset_name
+    del bpy.types.Scene.shapekey_presets_enum
 
 if __name__ == "__main__":
     register()
