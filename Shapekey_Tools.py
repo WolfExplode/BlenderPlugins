@@ -194,6 +194,39 @@ def save_preset_to_file(preset_name, shape_keys):
     text_block.clear()
     text_block.write('\n'.join(new_lines).strip())
 
+class RemoveShapeKeyDriversOperator(bpy.types.Operator):
+    bl_idname = "object.remove_shapekey_drivers"
+    bl_label = "Remove All Drivers"
+    bl_description = "Remove all drivers from shape keys on the active object"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = context.active_object
+        if not obj or not obj.data.shape_keys:
+            self.report({'ERROR'}, "Active object has no shape keys")
+            return {'CANCELLED'}
+        
+        shape_keys = obj.data.shape_keys.key_blocks
+        driver_count = 0
+        
+        # Check if there's animation data
+        if obj.data.shape_keys.animation_data:
+            drivers = obj.data.shape_keys.animation_data.drivers
+            
+            # Iterate through all drivers
+            for drv in reversed(list(drivers)):
+                # Check if driver is for a shape key value
+                if drv.data_path.startswith('key_blocks["') and drv.data_path.endswith('"].value'):
+                    drivers.remove(drv)
+                    driver_count += 1
+        
+        if driver_count > 0:
+            self.report({'INFO'}, f"Removed {driver_count} drivers")
+        else:
+            self.report({'INFO'}, "No drivers found on shape keys")
+            
+        return {'FINISHED'}
+
 class SaveShapekeyPresetOperator(Operator):
     bl_idname = "object.save_shapekey_preset"
     bl_label = "Save Shapekey Preset"
@@ -401,6 +434,7 @@ class ShapekeyToolsPanel(bpy.types.Panel):
         if self.has_valid_shape_keys(active_obj):
             box.operator("object.reset_target_shape_keys", text="Reset Values")
             box.operator("object.remove_zero_shapekeys", text="Remove Zero Value Keys")
+            box.operator("object.remove_shapekey_drivers", text="Remove All Drivers")
 
 class ShapekeyTransferOperator(bpy.types.Operator):
     bl_idname = "object.shapekey_transfer"
@@ -598,6 +632,7 @@ classes = (
     SaveShapekeyPresetOperator,
     LoadShapekeyPresetOperator,
     DeleteShapekeyPresetOperator,
+    RemoveShapeKeyDriversOperator,
 )
 
 def register():
