@@ -10,6 +10,7 @@ bl_info = {
 
 import bpy
 import re
+import numpy as np
 from bpy.types import Panel, Operator
 from bpy.props import (PointerProperty, EnumProperty, StringProperty)
 
@@ -193,6 +194,54 @@ def save_preset_to_file(preset_name, shape_keys):
     
     text_block.clear()
     text_block.write('\n'.join(new_lines).strip())
+
+class CreateVertexGroupFromShapeKeyOperator(bpy.types.Operator):
+    bl_idname = "object.create_vertex_group_from_shapekey"
+    bl_label = "Create Vertex Group from Shape Key"
+    bl_description = "Create vertex group with vertices affected by active shape key"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            return False
+        shape_keys = obj.data.shape_keys
+        if not shape_keys or len(shape_keys.key_blocks) < 2:
+            return False
+        active_key = obj.active_shape_key
+        return active_key != shape_keys.key_blocks[0]
+
+    def execute(self, context):
+        obj = context.active_object
+        shape_keys = obj.data.shape_keys
+        active_key = obj.active_shape_key
+        basis = shape_keys.key_blocks[0]
+
+        # Sanitize name
+        vg_name = "sk_" + re.sub(r'\W+', '_', active_key.name).strip('_')
+
+        # Calculate displacement
+        basis_coords = np.array([v.co for v in basis.data])
+        shape_coords = np.array([v.co for v in active_key.data])
+        displacement = np.linalg.norm(shape_coords - basis_coords, axis=1)
+        threshold = 1e-4
+        affected = np.where(displacement > threshold)[0].tolist()
+
+        if not affected:
+            self.report({'INFO'}, "No affected vertices found")
+            return {'CANCELLED'}
+
+        # Create/update vertex group
+        if vg_name in obj.vertex_groups:
+            vg = obj.vertex_groups[vg_name]
+            vg.remove(range(len(obj.data.vertices)))
+        else:
+            vg = obj.vertex_groups.new(name=vg_name)
+
+        vg.add(affected, 1.0, 'REPLACE')
+        self.report({'INFO'}, f"Added {len(affected)} vertices to {vg_name}")
+        return {'FINISHED'}
 
 class RemoveShapeKeyDriversOperator(bpy.types.Operator):
     bl_idname = "object.remove_shapekey_drivers"
@@ -385,7 +434,6 @@ class ShapekeyToolsPanel(bpy.types.Panel):
         # Swap Shapekeys section
         box = layout.box()
         box.label(text="Swap Shapekeys")
-        
         active_obj = context.active_object
         if self.has_valid_shape_keys(active_obj):
             row = box.row()
@@ -393,6 +441,10 @@ class ShapekeyToolsPanel(bpy.types.Panel):
                           active_obj.data.shape_keys, "key_blocks", 
                           text="Shape Key")
             box.operator("object.swap_basis_shapekey", text="Swap with Basis")
+            
+            # NEW BUTTON
+            box.operator("object.create_vertex_group_from_shapekey", 
+                        text="Create Vertex Group", icon='GROUP_VERTEX')
         else:
             box.label(text="No shape keys found", icon='INFO')
         
@@ -633,6 +685,7 @@ classes = (
     LoadShapekeyPresetOperator,
     DeleteShapekeyPresetOperator,
     RemoveShapeKeyDriversOperator,
+    CreateVertexGroupFromShapeKeyOperator,
 )
 
 def register():
