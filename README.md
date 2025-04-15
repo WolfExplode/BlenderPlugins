@@ -30,30 +30,51 @@ A collection of Blender scripts for rigging, shape key management, and texture h
 ### 2. **Shapekey_Tools.py**  
 **Description**: Tools for managing shape keys, including transferring, resetting, and modifying them.  
 **Features**:  
-- Copy shape keys between objects.  
-- Transfer shape key values (e.g., facial expressions).  
-- Swap the basis shape key with another.  
-- Reset all shape key values to zero.  
-- Remove unused zero-value shape keys.  
+1. Shapekey Transfer Tools
+🔄 Copy Shapekeys
+Transfer shape keys (including vertex data and value ranges) from a source object to multiple targets.
+📤 Transfer Values
+Copy shape key values (and min/max ranges) between objects, even if topology differs.
+2. Shapekey Management
+🔄 Swap with Basis
+Exchange the position/coordinates of any shape key with the Basis shape key.
+🗑️ Remove Zero-Value Keys
+Delete all shape keys with a value of 0 across selected objects.
+🚫 Remove All Drivers
+Clear all drivers attached to shape keys on the active object.
+3. Preset System
+💾 Save Presets
+Store current shape key values as named presets.
+📥 Load Presets
+Apply saved presets to any object with matching shape keys.
+🗑️ Delete Presets
+Manage and remove unused presets.
 
 **How to Use**:  
 1. **Installation**:  
    - Install like the BoneRenamer script.  
    - Requires Blender 4.1.0 or later.  
 
-2. **Usage**:  
-   - Open the *Tool* tab in the 3D View sidebar.  
-   - **Copy Shape Keys**:  
-     - Pick a *Source* and *Target* object.  
-     - Click *Copy Shapekeys* to duplicate keys (geometry only).  
-   - **Transfer Values**:  
-     - Copies slider values from source to target (names must match).  
-   - **Swap Basis**:  
-     - Select a shape key and click *Swap with Basis* to exchange it with the basis shape.  
-   - **Reset Values**: Sets all sliders to zero.  
+2. **Usage**:
+Access the Tools
+Navigate to the 3D Viewport Sidebar (N key) → Tool tab.
+
+Key Operations
+Transfer Shapekeys
+Select a source object (must have shape keys).
+Choose target type :
+Single Object : Pick a specific target.
+Multiple Objects : Use selected objects (excluding the source).
+Click Copy Shapekeys or Transfer Values.
+Swap Basis
+Select an object with shape keys.
+Choose a shape key from the dropdown.
+Click Swap with Basis to exchange positions.
+Presets
+Save : Enter a preset name and click Save.
+Load/Delete : Select a preset from the list and use the buttons.
 
 ---
-
 ### 3. **ReloadTextures.py**  
 **Description**: Reloads all textures in the project to reflect external edits (e.g., updated image files).  
 
