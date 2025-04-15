@@ -31,23 +31,23 @@ A collection of Blender scripts for rigging, shape key management, and texture h
 **Description**: Tools for managing shape keys, including transferring, resetting, and modifying them.  
 **Features**:  
 1. Shapekey Transfer Tools
-🔄 Copy Shapekeys
+- 🔄 Copy Shapekeys
 Transfer shape keys (including vertex data and value ranges) from a source object to multiple targets.
-📤 Transfer Values
+- 📤 Transfer Values
 Copy shape key values (and min/max ranges) between objects, even if topology differs.
 2. Shapekey Management
-🔄 Swap with Basis
+- 🔄 Swap with Basis
 Exchange the position/coordinates of any shape key with the Basis shape key.
-🗑️ Remove Zero-Value Keys
+- 🗑️ Remove Zero-Value Keys
 Delete all shape keys with a value of 0 across selected objects.
-🚫 Remove All Drivers
+- 🚫 Remove All Drivers
 Clear all drivers attached to shape keys on the active object.
 3. Preset System
-💾 Save Presets
+- 💾 Save Presets
 Store current shape key values as named presets.
-📥 Load Presets
+- 📥 Load Presets
 Apply saved presets to any object with matching shape keys.
-🗑️ Delete Presets
+- 🗑️ Delete Presets
 Manage and remove unused presets.
 
 **How to Use**:  
