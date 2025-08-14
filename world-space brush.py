@@ -2,11 +2,11 @@ bl_info = {
     "name": "World-Space Brush Radius For Texture Painting",
     "author": "WolfExplode + chatgpt",
     "version": (1, 1, 0),
-    "blender": (4, 0, 0),
+    "blender": (3, 2, 0),
     "location": "Tool > Brush Settings (while in texture paint mode)",
     "description": "Keeps Texture Paint brush size constant in world units; with debug overlay & logs.",
-    "category": "Paint",
-}
+    "doc_url": "https://github.com/WolfExplode/BlenderPlugins/blob/main/world-space%20brush.py",
+    "category": "Paint"}
 
 import bpy
 from bpy.types import Operator, PropertyGroup
