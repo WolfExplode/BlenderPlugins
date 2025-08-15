@@ -4,7 +4,7 @@ bl_info = {
     "version": (1, 1, 0),
     "blender": (3, 2, 0),
     "location": "Tool > Brush Settings (while in texture paint mode)",
-    "description": "Keeps Texture Paint brush size constant in world units with debug overlay",
+    "description": "Keeps Texture Paint brush size constant in world units with debug overlay.",
     "doc_url": "https://github.com/WolfExplode/BlenderPlugins/blob/main/world-space%20brush.py",
     "category": "Paint"}
 
@@ -35,7 +35,6 @@ _STATE = {
 
 
 def dbg_print(*args):
-    # Console logging follows the overlay toggle
     if getattr(bpy.context.scene, 'wltp_dbg', None) and bpy.context.scene.wltp_dbg.enable_overlay:
         print("[WLTP]", *args)
 
@@ -70,11 +69,10 @@ def region_under_mouse(context, mx_win, my_win):
 
 
 def pixels_per_world_unit(area, region, world_point):
-    """Pixels per 1 world unit around given world point (sample along view-right)."""
     rv3d = area.spaces.active.region_3d
     view_right_world = (rv3d.view_matrix.inverted().to_3x3() @ Vector((1, 0, 0))).normalized()
     p0 = world_point
-    p1 = world_point + view_right_world  # +1 BU
+    p1 = world_point + view_right_world
     s0 = view3d_utils.location_3d_to_region_2d(region, rv3d, p0)
     s1 = view3d_utils.location_3d_to_region_2d(region, rv3d, p1)
     if s0 is None or s1 is None:
@@ -279,16 +277,22 @@ class WLTP_OT_Update(Operator):
             desired_radius_bu = 0.5 * _STATE["world_diameter_bu"]
             desired_radius_px = desired_radius_bu * ppu
 
-            # Apply brush size unless user is actively adjusting with F
-            if not self.f_adjust_active:
-                set_brush_pixel_radius(context, desired_radius_px)
-
-            # Debug bookkeeping
             br = get_texpaint_brush(context)
             applied = None
             if br:
                 ups = context.tool_settings.unified_paint_settings
                 applied = ups.size if ups.use_unified_size else br.size
+
+            # Only update world diameter if the user manually changed the brush size
+            # and we're not currently in F-adjust mode
+            if (not self.f_adjust_active and 
+                _DBG["last_brush_px"] is not None and 
+                applied != _DBG["last_brush_px"] and
+                abs(applied - desired_radius_px) > 1.0):  # Allow small rounding differences
+                self._update_world_diameter_from_brush(context, event)
+            # Apply brush size unless user is actively adjusting with F
+            elif not self.f_adjust_active:
+                set_brush_pixel_radius(context, desired_radius_px)
 
             depth = (world_point - origin).length
             _DBG.update({
@@ -304,10 +308,7 @@ class WLTP_OT_Update(Operator):
                 f"applied={applied} | depth={_DBG['last_depth']}"
             )
 
-            # Ensure overlay handler on/off matches toggle
             ensure_draw_handler(dbg.enable_overlay)
-
-            # Request redraw so overlay updates
             area.tag_redraw()
 
         return {'PASS_THROUGH'}
@@ -344,9 +345,6 @@ class WLTP_OT_Update(Operator):
 # -----------------------------
 
 def draw_wltp_toggle_under_radius(self, context):
-    # Append a compact toggle near the built-in Radius control in the
-    # Brush Settings panel. We re-draw the radius on the same row so the
-    # toggle appears adjacent, mimicking "under/next to radius" placement.
     if context.mode not in {'PAINT_TEXTURE', 'TEXTURE_PAINT'}:
         return
     props = getattr(context.scene, 'wltp', None)
@@ -356,11 +354,9 @@ def draw_wltp_toggle_under_radius(self, context):
     br = get_texpaint_brush(context)
     if not br:
         return
-    ups = context.tool_settings.unified_paint_settings
     layout = self.layout
     row = layout.row(align=True)
     row.prop(props, "enabled", text="Scene Radius", icon='WORLD', toggle=True)
-    # Debug overlay toggle to the right of world-space toggle also controls logging
     row.prop(dbg, "enable_overlay", text="Debug", toggle=True)
 
 # -----------------------------
@@ -379,7 +375,6 @@ def register():
     bpy.types.Scene.wltp = PointerProperty(type=WLTP_Props)
     bpy.types.Scene.wltp_dbg = PointerProperty(type=WLTP_DebugProps)
     ensure_draw_handler(False)
-    # Inject our toggle into the Brush Settings panel
     try:
         bpy.types.VIEW3D_PT_tools_brush_settings.append(draw_wltp_toggle_under_radius)
     except Exception:
@@ -392,7 +387,6 @@ def unregister():
     del bpy.types.Scene.wltp_dbg
     del bpy.types.Scene.wltp
     print("[WLTP] Unregistered.")
-    # Remove UI injection
     try:
         bpy.types.VIEW3D_PT_tools_brush_settings.remove(draw_wltp_toggle_under_radius)
     except Exception:
@@ -400,5 +394,3 @@ def unregister():
 
 if __name__ == "__main__":
     register()
-
-
