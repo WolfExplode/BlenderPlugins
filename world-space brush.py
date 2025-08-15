@@ -1,6 +1,6 @@
 bl_info = {
     "name": "World-Space Brush Radius For Texture Painting",
-    "author": "WolfExplode + chatgpt",
+    "author": "WolfExplode",
     "version": (1, 1, 0),
     "blender": (3, 2, 0),
     "location": "Tool > Brush Settings (while in texture paint mode)",
@@ -400,3 +400,4 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
