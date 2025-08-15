@@ -4,7 +4,7 @@ bl_info = {
     "version": (1, 1, 0),
     "blender": (3, 2, 0),
     "location": "Tool > Brush Settings (while in texture paint mode)",
-    "description": "Keeps Texture Paint brush size constant in world units; with debug overlay & logs.",
+    "description": "Keeps Texture Paint brush size constant in world units with debug overlay",
     "doc_url": "https://github.com/WolfExplode/BlenderPlugins/blob/main/world-space%20brush.py",
     "category": "Paint"}
 
@@ -400,4 +400,5 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
 
