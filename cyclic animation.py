@@ -4,37 +4,229 @@ from bpy.props import PointerProperty, EnumProperty, BoolProperty, FloatProperty
 from bpy.types import PropertyGroup, Operator, Panel
 
 # ============================================================================ #
-# HELPER FUNCTIONS (Blender 5.0 Compatibility)
+# HELPER FUNCTIONS (Pre-4.4 and 4.4+/5.0 Layered/Slotted Actions)
 # ============================================================================ #
 
-def get_action_fcurves(action):
-    """Retrieves F-Curves handling both legacy and Blender 5.0+ Layered Actions."""
-    if hasattr(action, "fcurves"):
+def _get_action_slot_for_datablock(action, datablock):
+    """Best-effort lookup of the ActionSlot that belongs to a given datablock."""
+    anim = getattr(datablock, "animation_data", None)
+    if anim and getattr(anim, "action", None) == action:
+        slot = getattr(anim, "action_slot", None)
+        if slot is not None:
+            return slot
+    
+    # Fallback: search slots by id or name
+    slots = getattr(action, "slots", None)
+    if slots is not None:
+        for slot in slots:
+            if getattr(slot, "id", None) is datablock:
+                return slot
+        for slot in slots:
+            if getattr(slot, "name", None) == getattr(datablock, "name", None):
+                return slot
+    return None
+
+
+def get_action_fcurves(action, datablock=None):
+    """
+    Retrieve F-Curves from an Action.
+    
+    - Pre-4.4 / legacy: returns action.fcurves directly.
+    - 4.4+/5.0 slotted/layered: if a datablock is provided, only returns curves
+      that belong to the appropriate slot for that datablock.
+    """
+    # Legacy / non-slotted API path
+    if hasattr(action, "fcurves") and not hasattr(action, "slots"):
         return action.fcurves
     
-    fcurves = []
-    if hasattr(action, "layers"):
+    # If we don't have layered API, fall back to any fcurves attribute
+    if not hasattr(action, "layers"):
+        return getattr(action, "fcurves", []) or []
+    
+    # Layered/slotted path – require datablock to pick the correct slot
+    if datablock is None:
+        # Fallback: collect all fcurves from all strips
+        fcurves = []
         for layer in action.layers:
             for strip in layer.strips:
-                if hasattr(strip, "channelbags"):
-                    for bag in strip.channelbags:
-                        fcurves.extend(bag.fcurves)
-                elif hasattr(strip, "fcurves"):
+                if hasattr(strip, "fcurves"):
                     fcurves.extend(strip.fcurves)
+        return fcurves
+    
+    slot = _get_action_slot_for_datablock(action, datablock)
+    if slot is None:
+        # No slot found; fall back to whatever curves we can see
+        return getattr(action, "fcurves", []) or []
+    
+    fcurves = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            # Newer API: strip.channelbag(slot, ensure=False)
+            channelbag = getattr(strip, "channelbag", None)
+            if callable(channelbag):
+                bag = channelbag(slot, ensure=False)
+                if bag is not None:
+                    fcurves.extend(getattr(bag, "fcurves", []))
+            elif hasattr(strip, "fcurves"):
+                # Older layered API before channelbag helper existed
+                fcurves.extend(strip.fcurves)
     return fcurves
 
-def ensure_fcurve(action, datablock, data_path, index=0):
-    """Creates/Ensures an F-Curve exists, handling API differences."""
+
+def ensure_fcurve(action, datablock, data_path, index=0, group_name=""):
+    """
+    Creates/ensures an F-Curve exists, handling both legacy and slotted APIs.
+    
+    - Pre-4.4: uses action.fcurves.
+    - 4.4+/5.0: uses action.fcurve_ensure_for_datablock when available.
+    """
+    # Newer API: let Blender choose correct slot/channelbag for this datablock
+    if hasattr(action, "fcurve_ensure_for_datablock"):
+        try:
+            return action.fcurve_ensure_for_datablock(
+                datablock, data_path, index=index, group_name=group_name or None
+            )
+        except TypeError:
+            # Older signature without group_name
+            return action.fcurve_ensure_for_datablock(datablock, data_path, index=index)
+    
+    # Legacy fallback: operate directly on action.fcurves
     if hasattr(action, "fcurves"):
         for fc in action.fcurves:
             if fc.data_path == data_path and fc.array_index == index:
                 return fc
         return action.fcurves.new(data_path=data_path, index=index)
     
-    if hasattr(action, "fcurve_ensure_for_datablock"):
-        return action.fcurve_ensure_for_datablock(datablock, data_path, index=index)
     return None
 
+
+def _resolve_slot_identifier(slot):
+    """Return a stable identifier for an ActionSlot (identifier or name)."""
+    if not slot:
+        return None
+    return getattr(slot, "identifier", None) or getattr(slot, "name", None)
+
+
+def parse_action_enum(value):
+    """Parse an enum value like 'ActionName|SlotId' into (Action, slot_id)."""
+    if not value or value == "NONE":
+        return None, None
+    parts = value.split("|", 1)
+    action = bpy.data.actions.get(parts[0])
+    slot_id = parts[1] if len(parts) > 1 else None
+    return action, slot_id
+
+
+def _collect_actions_for_object(obj):
+    """Collect unique action names used by the object and its shape keys."""
+    actions = set()
+    if not obj:
+        return actions
+
+    # Object-level animation
+    if obj.animation_data:
+        if obj.animation_data.nla_tracks:
+            for track in obj.animation_data.nla_tracks:
+                for strip in track.strips:
+                    if strip.action:
+                        actions.add(strip.action.name)
+        if obj.animation_data.action:
+            actions.add(obj.animation_data.action.name)
+
+    # Shape-key animation
+    if (obj.data and hasattr(obj.data, 'shape_keys') and
+        obj.data.shape_keys and obj.data.shape_keys.animation_data):
+        sk_anim = obj.data.shape_keys.animation_data
+        if sk_anim.nla_tracks:
+            for track in sk_anim.nla_tracks:
+                for strip in track.strips:
+                    if strip.action:
+                        actions.add(strip.action.name)
+        if sk_anim.action:
+            actions.add(sk_anim.action.name)
+
+    return actions
+
+
+def get_action_slot_enum_items_for_object(obj):
+    """
+    Build enum items for all (action, slot) combinations on this object.
+    - For legacy actions (no slots): one entry per action.
+    - For slotted actions: one entry per slot, labelled 'Action (Slot)'.
+    """
+    items = []
+    actions = _collect_actions_for_object(obj)
+    if not actions:
+        items.append(("NONE", "No actions found", ""))
+        return items
+
+    for action_name in sorted(actions):
+        action = bpy.data.actions.get(action_name)
+        if not action:
+            continue
+
+        slots = getattr(action, "slots", None)
+        if slots:
+            for slot in slots:
+                slot_id = _resolve_slot_identifier(slot)
+                slot_label = getattr(slot, "name", "") or (slot_id or "")
+                label = f"{action.name} ({slot_label})" if slot_label else action.name
+                identifier = f"{action.name}|{slot_id}" if slot_id is not None else action.name
+                items.append((identifier, label, ""))
+        else:
+            # Legacy / non-slotted action
+            items.append((action.name, action.name, ""))
+
+    return items
+
+
+def get_action_fcurves_for_slot(action, slot_identifier, datablock=None):
+    """
+    Retrieve F-Curves for a specific slot of an Action.
+    - If slot_identifier is None, falls back to get_action_fcurves.
+    - On slotted actions, restricts to the chosen slot's channelbag(s).
+    """
+    # No explicit slot requested: use existing helper
+    if not slot_identifier:
+        return get_action_fcurves(action, datablock=datablock)
+
+    # Legacy / non-slotted actions
+    if not hasattr(action, "slots"):
+        return get_action_fcurves(action, datablock=datablock)
+
+    # Find the matching slot on this action
+    slot = None
+    for s in action.slots:
+        if _resolve_slot_identifier(s) == slot_identifier:
+            slot = s
+            break
+
+    if slot is None:
+        # Fallback: default behavior
+        return get_action_fcurves(action, datablock=datablock)
+
+    fcurves = []
+    # Prefer layered/channelbag API when available
+    if hasattr(action, "layers"):
+        for layer in action.layers:
+            for strip in layer.strips:
+                channelbag = getattr(strip, "channelbag", None)
+                if callable(channelbag):
+                    bag = channelbag(slot, ensure=False)
+                    if bag:
+                        fcurves.extend(getattr(bag, "fcurves", []))
+                elif hasattr(strip, "channelbags"):
+                    # Older layered API with channelbags collection
+                    for bag in strip.channelbags:
+                        bag_slot = getattr(bag, "slot", None)
+                        if _resolve_slot_identifier(bag_slot) == slot_identifier:
+                            fcurves.extend(getattr(bag, "fcurves", []))
+
+    # If nothing found via channelbags, fall back to generic helper
+    if not fcurves:
+        return get_action_fcurves(action, datablock=datablock)
+
+    return fcurves
 def is_shape_key_action(obj, action):
     """Check if an action belongs to shape keys of the given object."""
     if not obj or not action:
@@ -93,43 +285,10 @@ class AnimationSlot(PropertyGroup):
     )
     
     def get_action_items(self, context):
-        items = []
         props = context.scene.variable_playback_props
         if not props or not props.source_object:
-            items.append(("NONE", "No object selected", ""))
-            return items
-        
-        obj = props.source_object
-        actions = set()
-        
-        # Object-level animation
-        if obj.animation_data:
-            if obj.animation_data.nla_tracks:
-                for track in obj.animation_data.nla_tracks:
-                    for strip in track.strips:
-                        if strip.action: 
-                            actions.add(strip.action.name)
-            if obj.animation_data.action:
-                actions.add(obj.animation_data.action.name)
-        
-        # Shape-key animation
-        if (obj.data and hasattr(obj.data, 'shape_keys') and
-            obj.data.shape_keys and obj.data.shape_keys.animation_data):
-            sk_anim = obj.data.shape_keys.animation_data
-            if sk_anim.nla_tracks:
-                for track in sk_anim.nla_tracks:
-                    for strip in track.strips:
-                        if strip.action: 
-                            actions.add(strip.action.name)
-            if sk_anim.action:
-                actions.add(sk_anim.action.name)
-        
-        if actions:
-            for action_name in sorted(actions):
-                items.append((action_name, action_name, ""))
-        else:
-            items.append(("NONE", "No actions found", ""))
-        return items
+            return [("NONE", "No object selected", "")]
+        return get_action_slot_enum_items_for_object(props.source_object)
 
 
 class VariablePlaybackProps(PropertyGroup):
@@ -177,42 +336,9 @@ class VariablePlaybackProps(PropertyGroup):
     )
     
     def get_action_items(self, context):
-        items = []
         if not self.source_object:
-            items.append(("NONE", "No object selected", ""))
-            return items
-        
-        actions = set()
-        obj = self.source_object
-        
-        # Object-level animation
-        if obj.animation_data:
-            if obj.animation_data.nla_tracks:
-                for track in obj.animation_data.nla_tracks:
-                    for strip in track.strips:
-                        if strip.action: 
-                            actions.add(strip.action.name)
-            if obj.animation_data.action:
-                actions.add(obj.animation_data.action.name)
-        
-        # Shape-key animation
-        if (obj.data and hasattr(obj.data, 'shape_keys') and
-            obj.data.shape_keys and obj.data.shape_keys.animation_data):
-            sk_anim = obj.data.shape_keys.animation_data
-            if sk_anim.nla_tracks:
-                for track in sk_anim.nla_tracks:
-                    for strip in track.strips:
-                        if strip.action: 
-                            actions.add(strip.action.name)
-            if sk_anim.action:
-                actions.add(sk_anim.action.name)
-        
-        if actions:
-            for action_name in sorted(actions):
-                items.append((action_name, action_name, ""))
-        else:
-            items.append(("NONE", "No actions found", ""))
-        return items
+            return [("NONE", "No object selected", "")]
+        return get_action_slot_enum_items_for_object(self.source_object)
 
 
 # ============================================================================ #
@@ -273,7 +399,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
                 # Original single action UI
                 layout.prop(props, "source_action", icon='ACTION')
                 if props.source_action and props.source_action != "NONE":
-                    action = bpy.data.actions.get(props.source_action)
+                    action, slot_id = parse_action_enum(props.source_action)
                     if action:
                         col = layout.column(align=True)
                         if hasattr(action, "frame_range"): fr = action.frame_range
@@ -282,7 +408,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
                         
                         col.label(text=f"Frames: {fr[0]:.0f} - {fr[1]:.0f}", icon='TIME')
                         dur = (fr[1] - fr[0]) / context.scene.render.fps if context.scene.render.fps else 0
-                        col.label(text=f"Duration: {dur:.2f}s", icon='PLAY')
+                        col.label(text=f"Base Duration: {dur:.2f}s", icon='PLAY')
         else:
             layout.label(text="Select an object with animation data", icon='INFO')
         
@@ -291,7 +417,6 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         
         col = layout.column(align=True)
         col.prop(props, "speed_multiplier", icon='TIME')
-        col.label(text="100% = Curve speed, 200% = Double speed", icon='INFO')
         
         box = layout.box()
         box.label(text="Output Frame Range", icon='PREVIEW_RANGE')
@@ -541,10 +666,11 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
             total_weight = 0.0
             for slot in props.animation_slots:
                 if slot.action and slot.action != "NONE":
-                    action = bpy.data.actions.get(slot.action)
+                    action, slot_id = parse_action_enum(slot.action)
                     if action:
                         action_data_list.append({
                             'action': action,
+                            'slot_id': slot_id,
                             'weight': slot.weight
                         })
                         total_weight += slot.weight
@@ -557,12 +683,13 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
             for data in action_data_list:
                 data['normalized_weight'] = data['weight'] / total_weight
         else:
-            src_action = bpy.data.actions.get(props.source_action)
+            src_action, src_slot_id = parse_action_enum(props.source_action)
             if not src_action:
                 self.report({'ERROR'}, "Action not found")
                 return {'CANCELLED'}
             action_data_list = [{
                 'action': src_action,
+                'slot_id': src_slot_id,
                 'weight': 100.0,
                 'normalized_weight': 1.0
             }]
@@ -587,7 +714,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
             preview_obj.animation_data_create()
         preview_obj.animation_data.action = preview_action
         
-        # Create curves
+        # Create curves (let Blender choose correct slot/channelbag for preview_obj)
         phase_fcurve = ensure_fcurve(preview_action, preview_obj, "location", 0)
         rate_fcurve = ensure_fcurve(preview_action, preview_obj, "location", 1)
         idx_fcurve = ensure_fcurve(preview_action, preview_obj, "location", 2)
@@ -701,16 +828,20 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             
             for slot in props.animation_slots:
                 if slot.action and slot.action != "NONE":
-                    action = bpy.data.actions.get(slot.action)
+                    action, slot_id = parse_action_enum(slot.action)
                     if action:
-                        fcurves = get_action_fcurves(action)
+                        target_db = (props.source_object.data.shape_keys if
+                                     is_shape_key_action(props.source_object, action)
+                                     else props.source_object)
+                        fcurves = get_action_fcurves_for_slot(action, slot_id, datablock=target_db)
                         if not fcurves:
-                            self.report({'WARNING'}, f"Action '{action.name}' has no curves, skipping")
+                            self.report({'WARNING'}, f"Action '{action.name}' has no curves for selected slot, skipping")
                             continue
                         
                         is_sk = is_shape_key_action(props.source_object, action)
                         action_data_list.append({
                             'action': action,
+                            'slot_id': slot_id,
                             'weight': slot.weight,
                             'fcurves': fcurves,
                             'is_shape_key': is_sk
@@ -730,19 +861,23 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 data['normalized_weight'] = data['weight'] / total_weight
         else:
             # Single action mode
-            src_action = bpy.data.actions.get(props.source_action)
+            src_action, src_slot_id = parse_action_enum(props.source_action)
             if not src_action:
                 self.report({'ERROR'}, "Action not found")
                 return {'CANCELLED'}
             
-            src_fcurves = get_action_fcurves(src_action)
+            target_db = (props.source_object.data.shape_keys if
+                         is_shape_key_action(props.source_object, src_action)
+                         else props.source_object)
+            src_fcurves = get_action_fcurves_for_slot(src_action, src_slot_id, datablock=target_db)
             if not src_fcurves:
-                self.report({'ERROR'}, "Action has no animation curves")
+                self.report({'ERROR'}, "Action has no animation curves for selected slot")
                 return {'CANCELLED'}
             
             is_sk = is_shape_key_action(props.source_object, src_action)
             action_data_list = [{
                 'action': src_action,
+                'slot_id': src_slot_id,
                 'weight': 100.0,
                 'normalized_weight': 1.0,
                 'fcurves': src_fcurves,
