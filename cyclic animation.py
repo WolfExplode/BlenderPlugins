@@ -262,6 +262,18 @@ def select_weighted_index(weights):
             return i
     return len(weights) - 1
 
+def update_bpm_curve(self, context):
+    """Clear parsed BPM data when curve is removed"""
+    if not self.bpm_curve:
+        if "variable_playback_time_rate_pairs" in context.scene:
+            del context.scene["variable_playback_time_rate_pairs"]
+
+def update_strength_curve(self, context):
+    """Clear parsed strength data when curve is removed"""
+    if not self.strength_curve:
+        if "variable_playback_strength_influence_pairs" in context.scene:
+            del context.scene["variable_playback_strength_influence_pairs"]
+
 # ============================================================================ #
 # PROPERTY GROUPS
 # ============================================================================ #
@@ -317,22 +329,15 @@ class VariablePlaybackProps(PropertyGroup):
     bpm_curve: PointerProperty(
         name="BPM Curve",
         type=bpy.types.Object,
-        description="Curve object with X=time(min), Y=rate(BPM)"
+        description="Curve object with X=time(min), Y=rate(BPM)",
+        update=update_bpm_curve
     )
     
     strength_curve: PointerProperty(
         name="Strength Curve",
         type=bpy.types.Object,
-        description="Curve object with X=time(min), Y=influence (1m = 100%)"
-    )
-    
-    speed_multiplier: FloatProperty(
-        name="Speed Multiplier",
-        description="Additional multiplier for playback speed (100% = normal, 200% = double)",
-        default=100.0,
-        min=0.0,
-        max=1000.0,
-        subtype='PERCENTAGE'
+        description="Curve object with X=time(min), Y=influence (1m = 100%)",
+        update=update_strength_curve
     )
     
     def get_action_items(self, context):
@@ -414,9 +419,6 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         
         layout.separator()
         layout.prop(props, "bpm_curve", icon='CURVE_DATA')
-        
-        col = layout.column(align=True)
-        col.prop(props, "speed_multiplier", icon='TIME')
         
         box = layout.box()
         box.label(text="Output Frame Range", icon='PREVIEW_RANGE')
@@ -654,7 +656,6 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
     def execute(self, context):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
-        rate_factor = props.speed_multiplier / 100.0
         
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
@@ -761,7 +762,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
         for frame in range(frame_start, frame_end + 1):
             t = frame / fps
             bpm = sample_bpm(t)
-            rate = max(bpm, 0.0) / 60.0 * rate_factor
+            rate = max(bpm, 0.0) / 60.0
             phase += rate * (1.0 / fps)
             
             normalized_phase = phase % 1.0
@@ -811,7 +812,6 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
         strength_pairs = context.scene.get("variable_playback_strength_influence_pairs", [])
-        rate_factor = props.speed_multiplier / 100.0
         
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
@@ -898,8 +898,31 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         
         # Create baked action
         suffix = "_ShapeKeys" if first_is_shape_key else ""
-        mode_suffix = "_Multi" if props.use_multiple_animations else ""
-        baked_name = f"{props.source_object.name}_{action_data_list[0]['action'].name}_Baked{mode_suffix}{suffix}"
+
+        if props.use_multiple_animations:
+            # Multi-animation mode: ActionName_Blend_Baked
+            highest_weight_data = max(action_data_list, key=lambda x: x['normalized_weight'])
+            action_name = highest_weight_data['action'].name
+            base_name = f"{action_name}_Blend_Baked"
+        else:
+            # Single animation mode: ActionName_SlotName_Baked
+            action = action_data_list[0]['action']
+            action_name = action.name
+            slot_id = action_data_list[0]['slot_id']
+
+            slot_name = ""
+            if slot_id and hasattr(action, "slots") and action.slots:
+                for slot in action.slots:
+                    if _resolve_slot_identifier(slot) == slot_id:
+                        slot_name = getattr(slot, "name", "") or slot_id
+                        break
+
+            if slot_name:
+                base_name = f"{action_name}_{slot_name}_Baked"
+            else:
+                base_name = f"{action_name}_Baked"
+
+        baked_name = base_name + suffix
         if baked_name in bpy.data.actions:
             bpy.data.actions.remove(bpy.data.actions[baked_name])
         
@@ -965,7 +988,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             wm.progress_update(frame - frame_start)
             t = frame / fps
             bpm = self.sample_bpm(t, pairs)
-            rate = max(bpm, 0.0) / 60.0 * rate_factor
+            rate = max(bpm, 0.0) / 60.0
             phase += rate * (1.0 / fps)
             
             normalized_phase = phase % 1.0
@@ -985,7 +1008,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             # Sample from current action
             current_data = action_data_list[current_action_idx]
             src_frame = current_data['src_start'] + normalized_phase * current_data['src_duration']
-            
+            # the script handles different input cyclic animation durations by remapping to fit the desired bpm
             for src_fc in current_data['fcurves']:
                 key = (src_fc.data_path, src_fc.array_index)
                 if key in baked_fcurves:
@@ -1060,6 +1083,7 @@ classes = (
     VariablePlaybackProps,
     VARIABLEPLAYBACK_PT_panel,
     VARIABLEPLAYBACK_OT_read_curve,
+    VARIABLEPLAYBACK_OT_read_strength_curve,
     VARIABLEPLAYBACK_OT_preview,
     VARIABLEPLAYBACK_OT_bake,
     VARIABLEPLAYBACK_OT_add_slot,
