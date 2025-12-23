@@ -161,6 +161,21 @@ class VariablePlaybackProps(PropertyGroup):
         description="Curve object with X=time(min), Y=rate(BPM)"
     )
     
+    strength_curve: PointerProperty(
+        name="Strength Curve",
+        type=bpy.types.Object,
+        description="Curve object with X=time(min), Y=influence (1m = 100%)"
+    )
+    
+    speed_multiplier: FloatProperty(
+        name="Speed Multiplier",
+        description="Additional multiplier for playback speed (100% = normal, 200% = double)",
+        default=100.0,
+        min=0.0,
+        max=1000.0,
+        subtype='PERCENTAGE'
+    )
+    
     def get_action_items(self, context):
         items = []
         if not self.source_object:
@@ -274,6 +289,10 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         layout.separator()
         layout.prop(props, "bpm_curve", icon='CURVE_DATA')
         
+        col = layout.column(align=True)
+        col.prop(props, "speed_multiplier", icon='TIME')
+        col.label(text="100% = Curve speed, 200% = Double speed", icon='INFO')
+        
         box = layout.box()
         box.label(text="Output Frame Range", icon='PREVIEW_RANGE')
         col = box.column(align=True)
@@ -293,6 +312,25 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         
         col = layout.column(align=True)
         col.operator("variable_playback.read_curve", icon='IMPORT')
+        
+        layout.separator()
+        layout.prop(props, "strength_curve", icon='CURVE_DATA')
+
+        if "variable_playback_strength_influence_pairs" in context.scene:
+            strength_pairs = context.scene["variable_playback_strength_influence_pairs"]
+            box = layout.box()
+            box.label(text=f"Strength Data: {len(strength_pairs)} points", icon='CHECKMARK')
+            if len(strength_pairs) > 0:
+                strength_col = box.column(align=True)
+                strength_col.label(text="First points:", icon='DOT')
+                for i in range(min(3, len(strength_pairs))):
+                    t, influence = strength_pairs[i]
+                    strength_col.label(text=f"  t={t:.2f}s, Influence={influence:.1%}")
+
+        strength_col = layout.column(align=True)
+        strength_col.operator("variable_playback.read_strength_curve", icon='IMPORT')
+
+        col = layout.column(align=True)
         row = col.row(align=True)
         row.operator("variable_playback.preview", icon='MONKEY')
         row.enabled = "variable_playback_time_rate_pairs" in context.scene
@@ -393,6 +431,94 @@ class VARIABLEPLAYBACK_OT_read_curve(Operator):
         return {'FINISHED'}
 
 
+class VARIABLEPLAYBACK_OT_read_strength_curve(Operator):
+    """Read strength/influence data from selected curve by converting to mesh"""
+    bl_idname = "variable_playback.read_strength_curve"
+    bl_label = "Read Strength Data"
+    bl_description = "Duplicate curve, convert to mesh, and read high-res influence data (1m = 100%)"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        props = context.scene.variable_playback_props
+        
+        if not props.strength_curve:
+            self.report({'ERROR'}, "No strength curve selected")
+            return {'CANCELLED'}
+            
+        src_obj = props.strength_curve
+        if src_obj.type != 'CURVE':
+            self.report({'ERROR'}, "Selected object is not a curve")
+            return {'CANCELLED'}
+
+        prev_active = context.view_layer.objects.active
+        prev_selected = context.selected_objects
+        
+        temp_obj = None
+        temp_mesh = None
+        
+        try:
+            temp_obj = src_obj.copy()
+            temp_obj.data = src_obj.data.copy() 
+            context.scene.collection.objects.link(temp_obj)
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            temp_obj.select_set(True)
+            context.view_layer.objects.active = temp_obj
+            
+            bpy.ops.object.convert(target='MESH')
+            
+            mesh = temp_obj.data
+            temp_mesh = mesh
+            verts = mesh.vertices
+            
+            if len(verts) < 2:
+                self.report({'ERROR'}, "Curve resolved to fewer than 2 vertices")
+                return {'CANCELLED'}
+            
+            IMPORT_X_SCALE = 1 / 60.0
+            # 1m = 100% influence = 1.0, so scale factor is 1.0
+            
+            time_influence_pairs = []
+            for v in verts:
+                x, y = v.co.x, v.co.y
+                time_seconds = x / IMPORT_X_SCALE
+                influence = max(y, 0.0)  # Clamp negative values to 0
+                if time_seconds >= 0:
+                    time_influence_pairs.append((time_seconds, influence))
+            
+            time_influence_pairs.sort(key=lambda k: k[0])
+            
+            # Remove duplicates
+            clean_pairs = []
+            last_t = -1.0
+            for t, influence in time_influence_pairs:
+                if t > last_t:
+                    clean_pairs.append((t, influence))
+                    last_t = t
+            
+            context.scene["variable_playback_strength_influence_pairs"] = clean_pairs
+            self.report({'INFO'}, f"Sampled {len(clean_pairs)} strength points from curve.")
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Error processing strength curve: {str(e)}")
+            return {'CANCELLED'}
+            
+        finally:
+            if temp_obj:
+                bpy.data.objects.remove(temp_obj, do_unlink=True)
+            if temp_mesh:
+                bpy.data.meshes.remove(temp_mesh, do_unlink=True)
+            
+            if prev_selected:
+                for obj in prev_selected:
+                    try: obj.select_set(True)
+                    except: pass
+            if prev_active:
+                context.view_layer.objects.active = prev_active
+
+        return {'FINISHED'}
+
+
 class VARIABLEPLAYBACK_OT_preview(Operator):
     """Create preview visualization showing phase and rate"""
     bl_idname = "variable_playback.preview"
@@ -403,6 +529,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
     def execute(self, context):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
+        rate_factor = props.speed_multiplier / 100.0
         
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
@@ -507,7 +634,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
         for frame in range(frame_start, frame_end + 1):
             t = frame / fps
             bpm = sample_bpm(t)
-            rate = max(bpm, 0.0) / 60.0
+            rate = max(bpm, 0.0) / 60.0 * rate_factor
             phase += rate * (1.0 / fps)
             
             normalized_phase = phase % 1.0
@@ -534,9 +661,30 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
     bl_description = "Bake variable playback into new action"
     bl_options = {'REGISTER', 'UNDO'}
     
+    def sample_strength(self, time_seconds, strength_pairs):
+        """Sample strength influence from time/influence pairs."""
+        if not strength_pairs:
+            return 1.0  # Default to 100% influence if no curve provided
+        
+        if time_seconds <= strength_pairs[0][0]: 
+            return strength_pairs[0][1]
+        if time_seconds >= strength_pairs[-1][0]: 
+            return strength_pairs[-1][1]
+        
+        for i in range(len(strength_pairs) - 1):
+            t0, inf0 = strength_pairs[i]
+            t1, inf1 = strength_pairs[i + 1]
+            if t0 <= time_seconds <= t1:
+                factor = (time_seconds - t0) / (t1 - t0)
+                return inf0 + factor * (inf1 - inf0)
+        
+        return strength_pairs[-1][1]
+    
     def execute(self, context):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
+        strength_pairs = context.scene.get("variable_playback_strength_influence_pairs", [])
+        rate_factor = props.speed_multiplier / 100.0
         
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
@@ -682,10 +830,12 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             wm.progress_update(frame - frame_start)
             t = frame / fps
             bpm = self.sample_bpm(t, pairs)
-            rate = max(bpm, 0.0) / 60.0
+            rate = max(bpm, 0.0) / 60.0 * rate_factor
             phase += rate * (1.0 / fps)
             
             normalized_phase = phase % 1.0
+            
+            influence = self.sample_strength(t, strength_pairs)
             
             # Detect phase wrap or first frame
             if frame == frame_start or normalized_phase < prev_normalized_phase:
@@ -705,9 +855,10 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 key = (src_fc.data_path, src_fc.array_index)
                 if key in baked_fcurves:
                     try:
-                        value = src_fc.evaluate(src_frame)
+                        base_value = src_fc.evaluate(src_frame)
+                        final_value = base_value * influence
                         baked_fc = baked_fcurves[key]
-                        baked_fc.keyframe_points.insert(frame, value, options={'FAST'})
+                        baked_fc.keyframe_points.insert(frame, final_value, options={'FAST'})
                     except:
                         pass
             
