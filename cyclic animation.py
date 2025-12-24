@@ -1063,63 +1063,103 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             cw += data['normalized_weight']
             cumulative_weights.append(cw)
         
-        # Bake frames
         fps = context.scene.render.fps
-        phase = 0.0
         frame_start = context.scene.frame_start
         frame_end = context.scene.frame_end
-        current_action_idx = 0
+        frame_count = frame_end - frame_start + 1
+        
+        # Precompute per-frame metadata (phase, selected action, source frame, influence)
+        phase = 0.0
         prev_normalized_phase = 0.0
+        current_action_idx = 0
+        frame_data = []
         
         wm = context.window_manager
-        wm.progress_begin(0, frame_end - frame_start)
+        wm.progress_begin(0, frame_count)
         
-        for frame in range(frame_start, frame_end + 1):
-            wm.progress_update(frame - frame_start)
+        for i, frame in enumerate(range(frame_start, frame_end + 1)):
+            wm.progress_update(i)
             t = frame / fps
             bpm = self.sample_bpm(t, pairs)
             rate = max(bpm, 0.0) / 60.0
             phase += rate * (1.0 / fps)
             
             normalized_phase = phase % 1.0
-            
             influence = self.sample_strength(t, strength_pairs)
             
             # Detect phase wrap or first frame
             if frame == frame_start or normalized_phase < prev_normalized_phase:
-                # Select new action
                 if props.use_multiple_animations and len(action_data_list) > 1:
                     r = random.random()
-                    for i, cw in enumerate(cumulative_weights):
-                        if r <= cw:
-                            current_action_idx = i
+                    for idx, cw_val in enumerate(cumulative_weights):
+                        if r <= cw_val:
+                            current_action_idx = idx
                             break
+                else:
+                    current_action_idx = 0
             
-            # Sample from current action
             current_data = action_data_list[current_action_idx]
             src_frame = current_data['src_start'] + normalized_phase * current_data['src_duration']
-            base_values = current_data.get('base_values', {})
-            # the script handles different input cyclic animation durations by remapping to fit the desired bpm
-            tolerance = 1e-6
-            for src_fc in current_data['fcurves']:
-                key = (src_fc.data_path, src_fc.array_index)
-                if key in baked_fcurves:
-                    try:
-                        base_value = src_fc.evaluate(src_frame)
-                        first_value = base_values.get(key, base_value)
-                        delta = base_value - first_value
-                        if abs(delta) < tolerance:
-                            # No effective change from the first keyframe; leave value unscaled
-                            final_value = base_value
-                        else:
-                            # Scale only the deviation from the first keyframe by strength
-                            final_value = first_value + delta * influence
-                        baked_fc = baked_fcurves[key]
-                        baked_fc.keyframe_points.insert(frame, final_value, options={'FAST'})
-                    except:
-                        pass
+            
+            frame_data.append({
+                "frame": frame,
+                "src_frame": src_frame,
+                "action_idx": current_action_idx,
+                "influence": influence,
+            })
             
             prev_normalized_phase = normalized_phase
+        
+        tolerance = 1e-6
+        
+        # Build per-action fcurve lookup maps to avoid repeated scans
+        for data in action_data_list:
+            fc_map = {}
+            for src_fc in data['fcurves']:
+                fc_map[(src_fc.data_path, src_fc.array_index)] = src_fc
+            data['fcurve_map'] = fc_map
+        
+        # For each destination curve, evaluate only where source data exists
+        for (dp, idx), baked_fc in baked_fcurves.items():
+            # Pre-cache source fcurves and base values per action index
+            src_fc_per_action = {}
+            base_val_per_action = {}
+            for action_idx, data in enumerate(action_data_list):
+                fc = data['fcurve_map'].get((dp, idx))
+                if fc is not None:
+                    src_fc_per_action[action_idx] = fc
+                    base_val_per_action[action_idx] = data['base_values'].get((dp, idx), 0.0)
+            
+            # Collect frames that actually have a source curve
+            relevant_frames = []
+            for fd in frame_data:
+                action_idx = fd["action_idx"]
+                src_fc = src_fc_per_action.get(action_idx)
+                if src_fc is None:
+                    continue
+                relevant_frames.append((fd, action_idx, src_fc))
+            
+            if not relevant_frames:
+                continue
+            
+            baked_fc.keyframe_points.add(len(relevant_frames))
+            
+            for i, (fd, action_idx, src_fc) in enumerate(relevant_frames):
+                try:
+                    base_value = src_fc.evaluate(fd["src_frame"])
+                    first_value = base_val_per_action.get(action_idx, base_value)
+                    delta = base_value - first_value
+                    if abs(delta) < tolerance:
+                        # No effective change from the first keyframe; leave value unscaled
+                        final_value = base_value
+                    else:
+                        # Scale only the deviation from the first keyframe by strength
+                        final_value = first_value + delta * fd["influence"]
+                    kp = baked_fc.keyframe_points[i]
+                    kp.co = (fd["frame"], final_value)
+                except Exception:
+                    # Skip problematic points but continue baking
+                    continue
         
         wm.progress_end()
         target_datablock.animation_data.action = prev_action  # Restore previous action
