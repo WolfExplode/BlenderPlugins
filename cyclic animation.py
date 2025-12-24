@@ -401,6 +401,67 @@ class VariablePlaybackProps(PropertyGroup):
         update=update_strength_curve
     )
 
+    # Random Intensity Controls
+    use_random_intensity: BoolProperty(
+        name="Random Intensity per Loop",
+        description="Apply a random intensity multiplier to each loop cycle for extra variation",
+        default=False
+    )
+
+    random_intensity_seed: IntProperty(
+        name="Intensity Seed",
+        description="Seed for random intensity generation (0 = random each time)",
+        default=0,
+        min=0
+    )
+
+    random_intensity_min: FloatProperty(
+        name="Min",
+        description="Minimum random intensity multiplier",
+        default=0.8,
+        min=0.0,
+        max=10.0,
+        soft_min=0.1,
+        soft_max=2.0
+    )
+
+    random_intensity_max: FloatProperty(
+        name="Max",
+        description="Maximum random intensity multiplier",
+        default=1.2,
+        min=0.0,
+        max=10.0,
+        soft_min=0.1,
+        soft_max=2.0
+    )
+
+    # Random Speed Controls (uses seed+1)
+    use_random_speed: BoolProperty(
+        name="Random Speed per Loop",
+        description="Randomly multiply playback speed for each loop cycle",
+        default=False
+    )
+
+    random_speed_min: FloatProperty(
+        name="Min",
+        description="Minimum random speed multiplier",
+        default=0.8,
+        min=0.1,
+        max=3.0,
+        soft_min=0.5,
+        soft_max=2.0
+    )
+
+    random_speed_max: FloatProperty(
+        name="Max",
+        description="Maximum random speed multiplier",
+        default=1.2,
+        min=0.1,
+        max=3.0,
+        soft_min=0.5,
+        soft_max=2.0
+    )
+
     bake_speed_scale: FloatProperty(
         name="Baked Speed",
         description="Global speed multiplier for the baked animation (1.0 = original, >1.0 = faster, <1.0 = slower)",
@@ -564,6 +625,28 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         strength_col.operator("variable_playback.read_strength_curve", icon='IMPORT')
 
         layout.separator()
+        box = layout.box()
+        box.label(text="Random Intensity per Loop", icon='SHADERFX')
+        col = box.column(align=True)
+        col.prop(props, "use_random_intensity", text="Enable")
+        if props.use_random_intensity:
+            col.prop(props, "random_intensity_seed", text="Seed")
+            row = col.row(align=True)
+            row.prop(props, "random_intensity_min", text="Min")
+            row.prop(props, "random_intensity_max", text="Max")
+        # Random Speed UI
+        box = layout.box()
+        box.label(text="Random Speed per Loop", icon='TIME')
+        col = box.column(align=True)
+        col.prop(props, "use_random_speed", text="Enable")
+        if props.use_random_speed:
+            if props.random_intensity_seed == 0:
+                col.label(text="Set Intensity Seed > 0 to lock speed seed", icon='ERROR')
+            else:
+                col.label(text=f"Uses seed: {props.random_intensity_seed + 1}", icon='INFO')
+            row = col.row(align=True)
+            row.prop(props, "random_speed_min", text="Min")
+            row.prop(props, "random_speed_max", text="Max")
         layout.prop(props, "bake_speed_scale", slider=True)
         
         col = layout.column(align=True)
@@ -932,6 +1015,24 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
             return {'CANCELLED'}
+
+        # Initialize random intensity generator
+        intensity_rng = None
+        speed_rng = None
+        if props.use_random_intensity:
+            if props.random_intensity_seed > 0:
+                intensity_rng = random.Random(props.random_intensity_seed)
+                self.report({'INFO'}, f"Using random intensity seed: {props.random_intensity_seed}")
+            else:
+                intensity_rng = random.Random()
+
+        # Prepare random speed generator (seed+1)
+        if props.use_random_speed:
+            if props.random_intensity_seed > 0:
+                speed_seed = props.random_intensity_seed + 1
+                speed_rng = random.Random(speed_seed)
+            else:
+                speed_rng = random.Random()
         
         # Prepare action data
         if props.use_multiple_animations:
@@ -1138,6 +1239,9 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         frame_start = context.scene.frame_start
         frame_end = context.scene.frame_end
         frame_count = frame_end - frame_start + 1
+        # Random multipliers tracking
+        current_loop_intensity = 1.0
+        current_loop_speed = 1.0
         
         # Precompute per-frame metadata (phase, selected action, source frame, influence)
         # Store as tuples (frame, src_frame, action_idx, influence) to avoid dict overhead.
@@ -1153,14 +1257,29 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             wm.progress_update(i)
             t = frame / fps
             bpm = self.sample_bpm(t, pairs)
-            rate = max(bpm, 0.0) / 60.0
-            phase += rate * (1.0 / fps) * speed_scale
+            base_rate = max(bpm, 0.0) / 60.0
+            adjusted_rate = base_rate * current_loop_speed
+            phase += adjusted_rate * (1.0 / fps) * speed_scale
             
             normalized_phase = phase % 1.0
             influence = self.sample_strength(t, strength_pairs)
             
             # Detect phase wrap or first frame
             if frame == frame_start or normalized_phase < prev_normalized_phase:
+                if props.use_random_intensity:
+                    rng = intensity_rng if intensity_rng is not None else random
+                    current_loop_intensity = rng.uniform(
+                        props.random_intensity_min,
+                        props.random_intensity_max
+                    )
+
+                if props.use_random_speed:
+                    rng = speed_rng if speed_rng is not None else random
+                    current_loop_speed = rng.uniform(
+                        props.random_speed_min,
+                        props.random_speed_max
+                    )
+
                 if props.use_multiple_animations and len(action_data_list) > 1:
                     r = random.random()
                     for idx, cw_val in enumerate(cumulative_weights):
@@ -1170,11 +1289,13 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 else:
                     current_action_idx = 0
             
+            final_influence = influence * current_loop_intensity
+
             current_data = action_data_list[current_action_idx]
             src_frame = current_data['src_start'] + normalized_phase * current_data['src_duration']
             
             # (frame, src_frame, action_idx, influence)
-            frame_data.append((frame, src_frame, current_action_idx, influence))
+            frame_data.append((frame, src_frame, current_action_idx, final_influence))
             
             prev_normalized_phase = normalized_phase
         
@@ -1254,8 +1375,15 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         target_datablock.animation_data.action = prev_action  # Restore previous action
         baked_action.use_fake_user = True
 
-        mode_msg = "multiple animations" if props.use_multiple_animations else "single animation"
-        self.report({'INFO'}, f"Baked {frame_end - frame_start + 1} frames to '{baked_name}' ({mode_msg})")
+        mode_msg = []
+        if props.use_multiple_animations:
+            mode_msg.append("multiple animations")
+        if props.use_random_intensity:
+            mode_msg.append("random intensity")
+        if props.use_random_speed:
+            mode_msg.append("random speed")
+        mode_str = " + ".join(mode_msg) or "single animation"
+        self.report({'INFO'}, f"Baked {frame_end - frame_start + 1} frames to '{baked_name}' ({mode_str})")
         return {'FINISHED'}
     
     def sample_bpm(self, time_seconds, pairs):
