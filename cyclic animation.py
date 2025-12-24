@@ -281,6 +281,48 @@ def is_fcurve_constant(fcurve, tolerance=1e-6):
 
     return True
 
+
+def simplify_fcurve(fcurve, tolerance=0.001):
+    """
+    Remove redundant keyframes from an F-Curve.
+    """
+    if tolerance <= 0:
+        return 0
+    
+    points = fcurve.keyframe_points
+    if len(points) <= 2:
+        return 0
+    
+    to_remove = []
+    
+    for i in range(1, len(points) - 1):
+        kf = points[i]
+        if kf.interpolation != 'BEZIER':
+            continue
+        if kf.handle_left_type not in {'AUTO', 'AUTO_CLAMPED', 'VECTOR'}:
+            continue
+        if kf.handle_right_type not in {'AUTO', 'AUTO_CLAMPED', 'VECTOR'}:
+            continue
+        
+        prev = points[i - 1]
+        next = points[i + 1]
+        frame_range = next.co.x - prev.co.x
+        if frame_range == 0:
+            continue
+        t = (kf.co.x - prev.co.x) / frame_range
+        linear_value = prev.co.y + t * (next.co.y - prev.co.y)
+        
+        if abs(kf.co.y - linear_value) < tolerance:
+            to_remove.append(i)
+    
+    removed = len(to_remove)
+    if removed:
+        for i in reversed(to_remove):
+            points.remove(points[i], fast=True)
+        fcurve.update()
+    
+    return removed
+
 def update_bpm_curve(self, context):
     """Clear parsed BPM data when curve is removed"""
     if not self.bpm_curve:
@@ -357,6 +399,25 @@ class VariablePlaybackProps(PropertyGroup):
         type=bpy.types.Object,
         description="Curve object with X=time(min), Y=influence (1m = 100%)",
         update=update_strength_curve
+    )
+
+    bake_speed_scale: FloatProperty(
+        name="Baked Speed",
+        description="Global speed multiplier for the baked animation (1.0 = original, >1.0 = faster, <1.0 = slower)",
+        default=1.0,
+        min=0.05,
+        soft_min=0.1,
+        soft_max=2.0
+    )
+    
+    simplify_tolerance: FloatProperty(
+        name="Simplify F-Curve Tolerance",
+        description="Remove keyframes deviating less than this from linear. 0 = disabled",
+        default=0.001,
+        min=0.0,
+        soft_min=0.0001,
+        soft_max=0.1,
+        precision=4
     )
     
     def get_action_items(self, context):
@@ -502,6 +563,13 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         strength_col = layout.column(align=True)
         strength_col.operator("variable_playback.read_strength_curve", icon='IMPORT')
 
+        layout.separator()
+        layout.prop(props, "bake_speed_scale", slider=True)
+        
+        col = layout.column(align=True)
+        col.prop(props, "simplify_tolerance", slider=True)
+        col.label(text="0 = disabled • Higher = fewer keyframes", icon='INFO')
+        
         col = layout.column(align=True)
         row = col.row(align=True)
         row.operator("variable_playback.preview", icon='MONKEY')
@@ -701,6 +769,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
     def execute(self, context):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
+        speed_scale = getattr(props, "bake_speed_scale", 1.0)
         
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
@@ -808,7 +877,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
             t = frame / fps
             bpm = sample_bpm(t)
             rate = max(bpm, 0.0) / 60.0
-            phase += rate * (1.0 / fps)
+            phase += rate * (1.0 / fps) * speed_scale
             
             normalized_phase = phase % 1.0
             
@@ -818,7 +887,8 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
             
             # Insert keyframes
             phase_fcurve.keyframe_points.insert(frame, normalized_phase * 5.0, options={'FAST'})
-            rate_fcurve.keyframe_points.insert(frame, min(rate, 2.0), options={'FAST'})
+            # Store effective rate (after speed scaling) in Y for clearer preview
+            rate_fcurve.keyframe_points.insert(frame, min(rate * speed_scale, 2.0), options={'FAST'})
             idx_fcurve.keyframe_points.insert(frame, current_action_idx * 2.0, options={'FAST'})
             
             prev_normalized_phase = normalized_phase
@@ -857,6 +927,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
         strength_pairs = context.scene.get("variable_playback_strength_influence_pairs", [])
+        speed_scale = getattr(props, "bake_speed_scale", 1.0)
         
         if not pairs:
             self.report({'ERROR'}, "No curve data loaded")
@@ -1083,7 +1154,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             t = frame / fps
             bpm = self.sample_bpm(t, pairs)
             rate = max(bpm, 0.0) / 60.0
-            phase += rate * (1.0 / fps)
+            phase += rate * (1.0 / fps) * speed_scale
             
             normalized_phase = phase % 1.0
             influence = self.sample_strength(t, strength_pairs)
@@ -1168,9 +1239,21 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             baked_fc.keyframe_points.foreach_set("co", co_flat)
         
         wm.progress_end()
+
+        # === SIMPLIFICATION PASS ===
+        if props.simplify_tolerance > 0:
+            total_removed = 0
+            baked_fcurves_list = get_action_fcurves(baked_action, target_datablock)
+            for fcurve in baked_fcurves_list:
+                removed = simplify_fcurve(fcurve, props.simplify_tolerance)
+                total_removed += removed
+            
+            if total_removed > 0:
+                print(f"VariablePlayback: Simplified {total_removed} redundant keyframes")
+
         target_datablock.animation_data.action = prev_action  # Restore previous action
         baked_action.use_fake_user = True
-        
+
         mode_msg = "multiple animations" if props.use_multiple_animations else "single animation"
         self.report({'INFO'}, f"Baked {frame_end - frame_start + 1} frames to '{baked_name}' ({mode_msg})")
         return {'FINISHED'}
