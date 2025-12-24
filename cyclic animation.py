@@ -262,6 +262,25 @@ def select_weighted_index(weights):
             return i
     return len(weights) - 1
 
+
+def is_fcurve_constant(fcurve, tolerance=1e-6):
+    """
+    Check if an F-Curve has effectively no variation in value.
+    Returns True if all keyframe values are identical (within tolerance).
+    """
+    if not fcurve or not fcurve.keyframe_points:
+        return True
+
+    if len(fcurve.keyframe_points) == 1:
+        return True
+
+    first_value = fcurve.keyframe_points[0].co[1]
+    for kp in fcurve.keyframe_points:
+        if abs(kp.co[1] - first_value) > tolerance:
+            return False
+
+    return True
+
 def update_bpm_curve(self, context):
     """Clear parsed BPM data when curve is removed"""
     if not self.bpm_curve:
@@ -406,14 +425,40 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
                 if props.source_action and props.source_action != "NONE":
                     action, slot_id = parse_action_enum(props.source_action)
                     if action:
-                        col = layout.column(align=True)
-                        if hasattr(action, "frame_range"): fr = action.frame_range
-                        elif hasattr(action, "curve_frame_range"): fr = action.curve_frame_range
-                        else: fr = (0,0)
+                        # Determine target datablock (object or shape keys)
+                        target_db = (props.source_object.data.shape_keys if 
+                                     is_shape_key_action(props.source_object, action) 
+                                     else props.source_object)
                         
+                        # Get fcurves for the SPECIFIC SLOT, not the entire action
+                        slot_fcurves = get_action_fcurves_for_slot(action, slot_id, datablock=target_db)
+                        
+                        # Calculate frame range from slot's actual keyframes
+                        fr = (0, 0)
+                        if slot_fcurves:
+                            min_frame = float('inf')
+                            max_frame = -float('inf')
+                            for fc in slot_fcurves:
+                                if fc.keyframe_points:
+                                    for kp in fc.keyframe_points:
+                                        frame = kp.co.x
+                                        if frame < min_frame:
+                                            min_frame = frame
+                                        if frame > max_frame:
+                                            max_frame = frame
+                            if min_frame != float('inf'):
+                                fr = (min_frame, max_frame)
+                        
+                        # Fallback to action range if slot has no keyframes
+                        if fr == (0, 0):
+                            if hasattr(action, "frame_range"): fr = action.frame_range
+                            elif hasattr(action, "curve_frame_range"): fr = action.curve_frame_range
+                            else: fr = (0,0)
+
+                        col = layout.column(align=True)
                         col.label(text=f"Frames: {fr[0]:.0f} - {fr[1]:.0f}", icon='TIME')
                         dur = (fr[1] - fr[0]) / context.scene.render.fps if context.scene.render.fps else 0
-                        col.label(text=f"Base Duration: {dur:.2f}s", icon='PLAY')
+                        col.label(text=f"Base Duration: {dur:.2f}s", icon='PLAY')  # Fixed: was fr[2]
         else:
             layout.label(text="Select an object with animation data", icon='INFO')
         
@@ -837,14 +882,24 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                         if not fcurves:
                             self.report({'WARNING'}, f"Action '{action.name}' has no curves for selected slot, skipping")
                             continue
-                        
+
+                        # Store first-keyframe baseline values per F-Curve
+                        base_values = {}
+                        for fc in fcurves:
+                            key = (fc.data_path, fc.array_index)
+                            if fc.keyframe_points:
+                                base_values[key] = fc.keyframe_points[0].co[1]
+                            else:
+                                base_values[key] = 0.0
+
                         is_sk = is_shape_key_action(props.source_object, action)
                         action_data_list.append({
                             'action': action,
                             'slot_id': slot_id,
                             'weight': slot.weight,
                             'fcurves': fcurves,
-                            'is_shape_key': is_sk
+                            'is_shape_key': is_sk,
+                            'base_values': base_values
                         })
                         total_weight += slot.weight
             
@@ -873,7 +928,16 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             if not src_fcurves:
                 self.report({'ERROR'}, "Action has no animation curves for selected slot")
                 return {'CANCELLED'}
-            
+
+            # Store first-keyframe baseline values per F-Curve
+            base_values = {}
+            for fc in src_fcurves:
+                key = (fc.data_path, fc.array_index)
+                if fc.keyframe_points:
+                    base_values[key] = fc.keyframe_points[0].co[1]
+                else:
+                    base_values[key] = 0.0
+
             is_sk = is_shape_key_action(props.source_object, src_action)
             action_data_list = [{
                 'action': src_action,
@@ -881,7 +945,8 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 'weight': 100.0,
                 'normalized_weight': 1.0,
                 'fcurves': src_fcurves,
-                'is_shape_key': is_sk
+                'is_shape_key': is_sk,
+                'base_values': base_values
             }]
         
         # Verify all actions are same type (object or shape key)
@@ -933,24 +998,49 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         # Temporarily assign to create curves
         prev_action = target_datablock.animation_data.action
         target_datablock.animation_data.action = baked_action
+
+        # Ensure the baked action's slot is named to match the action
+        baked_slot = _get_action_slot_for_datablock(baked_action, target_datablock)
+        if baked_slot is not None and hasattr(baked_slot, "name"):
+            try:
+                baked_slot.name = baked_action.name
+            except Exception:
+                pass
         
         # Pre-calculate action data and collect all data paths
         all_data_paths = set()
         for data in action_data_list:
             action = data['action']
-            # Get frame range
-            if hasattr(action, "frame_range"): 
-                src_start, src_end = action.frame_range
-            elif hasattr(action, "curve_frame_range"): 
-                src_start, src_end = action.curve_frame_range
-            else: 
-                src_start, src_end = (0, 100)
-            
+            # Get frame range from slot-specific curves
+            slot_fcurves = data['fcurves']
+            src_start, src_end = (0, 100)  # defaults
+
+            if slot_fcurves:
+                min_frame = float('inf')
+                max_frame = -float('inf')
+                for fc in slot_fcurves:
+                    if fc.keyframe_points:
+                        for kp in fc.keyframe_points:
+                            frame = kp.co.x
+                            if frame < min_frame:
+                                min_frame = frame
+                            if frame > max_frame:
+                                max_frame = frame
+                if min_frame != float('inf'):
+                    src_start, src_end = (min_frame, max_frame)
+
+            # Fallback to action range if slot has no keyframes
+            if src_start == 0 and src_end == 100:
+                if hasattr(action, "frame_range"): 
+                    src_start, src_end = action.frame_range
+                elif hasattr(action, "curve_frame_range"): 
+                    src_start, src_end = action.curve_frame_range
+
             src_duration = src_end - src_start
             if src_duration == 0:
-                self.report({'ERROR'}, f"Action '{action.name}' has zero duration")
+                self.report({'ERROR'}, f"Action '{action.name}' slot has zero duration")
                 return {'CANCELLED'}
-            
+
             data['src_start'] = src_start
             data['src_end'] = src_end
             data['src_duration'] = src_duration
@@ -1008,13 +1098,22 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             # Sample from current action
             current_data = action_data_list[current_action_idx]
             src_frame = current_data['src_start'] + normalized_phase * current_data['src_duration']
+            base_values = current_data.get('base_values', {})
             # the script handles different input cyclic animation durations by remapping to fit the desired bpm
+            tolerance = 1e-6
             for src_fc in current_data['fcurves']:
                 key = (src_fc.data_path, src_fc.array_index)
                 if key in baked_fcurves:
                     try:
                         base_value = src_fc.evaluate(src_frame)
-                        final_value = base_value * influence
+                        first_value = base_values.get(key, base_value)
+                        delta = base_value - first_value
+                        if abs(delta) < tolerance:
+                            # No effective change from the first keyframe; leave value unscaled
+                            final_value = base_value
+                        else:
+                            # Scale only the deviation from the first keyframe by strength
+                            final_value = first_value + delta * influence
                         baked_fc = baked_fcurves[key]
                         baked_fc.keyframe_points.insert(frame, final_value, options={'FAST'})
                     except:
