@@ -1069,6 +1069,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         frame_count = frame_end - frame_start + 1
         
         # Precompute per-frame metadata (phase, selected action, source frame, influence)
+        # Store as tuples (frame, src_frame, action_idx, influence) to avoid dict overhead.
         phase = 0.0
         prev_normalized_phase = 0.0
         current_action_idx = 0
@@ -1101,12 +1102,8 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             current_data = action_data_list[current_action_idx]
             src_frame = current_data['src_start'] + normalized_phase * current_data['src_duration']
             
-            frame_data.append({
-                "frame": frame,
-                "src_frame": src_frame,
-                "action_idx": current_action_idx,
-                "influence": influence,
-            })
+            # (frame, src_frame, action_idx, influence)
+            frame_data.append((frame, src_frame, current_action_idx, influence))
             
             prev_normalized_phase = normalized_phase
         
@@ -1131,22 +1128,27 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                     base_val_per_action[action_idx] = data['base_values'].get((dp, idx), 0.0)
             
             # Collect frames that actually have a source curve
+            # Each entry: (frame, src_frame, influence, action_idx, src_fc)
             relevant_frames = []
-            for fd in frame_data:
-                action_idx = fd["action_idx"]
+            for frame, src_frame, action_idx, influence in frame_data:
                 src_fc = src_fc_per_action.get(action_idx)
                 if src_fc is None:
                     continue
-                relevant_frames.append((fd, action_idx, src_fc))
+                relevant_frames.append((frame, src_frame, influence, action_idx, src_fc))
             
             if not relevant_frames:
                 continue
             
-            baked_fc.keyframe_points.add(len(relevant_frames))
+            count = len(relevant_frames)
+            baked_fc.keyframe_points.add(count)
             
-            for i, (fd, action_idx, src_fc) in enumerate(relevant_frames):
+            # Build flat arrays and push to Blender in one call for better performance
+            frames_out = [0.0] * count
+            values_out = [0.0] * count
+            
+            for i, (frame, src_frame, influence, action_idx, src_fc) in enumerate(relevant_frames):
                 try:
-                    base_value = src_fc.evaluate(fd["src_frame"])
+                    base_value = src_fc.evaluate(src_frame)
                     first_value = base_val_per_action.get(action_idx, base_value)
                     delta = base_value - first_value
                     if abs(delta) < tolerance:
@@ -1154,12 +1156,16 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                         final_value = base_value
                     else:
                         # Scale only the deviation from the first keyframe by strength
-                        final_value = first_value + delta * fd["influence"]
-                    kp = baked_fc.keyframe_points[i]
-                    kp.co = (fd["frame"], final_value)
+                        final_value = first_value + delta * influence
+                    frames_out[i] = frame
+                    values_out[i] = final_value
                 except Exception:
                     # Skip problematic points but continue baking
                     continue
+            
+            # Interleave frames and values: [f0, v0, f1, v1, ...]
+            co_flat = [coord for pair in zip(frames_out, values_out) for coord in pair]
+            baked_fc.keyframe_points.foreach_set("co", co_flat)
         
         wm.progress_end()
         target_datablock.animation_data.action = prev_action  # Restore previous action
