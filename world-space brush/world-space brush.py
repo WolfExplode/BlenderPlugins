@@ -85,7 +85,7 @@ def pixels_per_world_unit_at_cursor(context, area, region):
 def set_brush_pixel_radius(context, px_radius):
     """Apply brush size respecting Unified Size if enabled."""
     ts = context.tool_settings
-    ups = ts.unified_paint_settings
+    ups = ts.image_paint.unified_paint_settings
     br = get_texpaint_brush(context)
     if br is None:
         return
@@ -101,7 +101,7 @@ def get_current_brush_size(context):
     br = get_texpaint_brush(context)
     if not br:
         return None
-    ups = context.tool_settings.unified_paint_settings
+    ups = context.tool_settings.image_paint.unified_paint_settings
     return ups.size if ups.use_unified_size else br.size
 
 
