@@ -1,3 +1,10 @@
+bl_info = {
+    "name": "ExportGeoNodesTxt",
+    "author": "WolfExplode",
+    "version": (1, 0, 0),
+    "blender": (3, 2, 0),
+    }
+
 import bpy
 import os
 
