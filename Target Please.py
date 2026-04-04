@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Target, Please! (Smart Pivot)",
     "author": "Ilyasse L",
-    "version": (1, 1, 12),
+    "version": (1, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D View",
     "description": (
@@ -16,92 +16,24 @@ import bpy
 from mathutils import Vector
 from bpy_extras import view3d_utils
 
-# Timer cannot read prefs; synced from preferences on change, invoke, and register.
-_smart_pivot_extra_translate_ops_cache = ""
-
 # ---------------------------------------------------------------------
 # Smart Pivot
 # ---------------------------------------------------------------------
-_TRANSLATE_OPERATOR_IDS = frozenset({
-    'transform.translate',
-    'TRANSFORM_OT_translate',
-})
-
-_ROTATE_OPERATOR_IDS = frozenset({
-    'transform.rotate',
-    'TRANSFORM_OT_rotate',
-})
-
-_smart_pivot_prev_translate_ptrs = None
-_smart_pivot_prev_rotate_ptrs = None
+_TRANSFORM_OPS = {
+    'TRANSLATE': lambda: bpy.ops.transform.translate('INVOKE_DEFAULT'),
+    'ROTATE':    lambda: bpy.ops.transform.rotate('INVOKE_DEFAULT'),
+    'RESIZE':    lambda: bpy.ops.transform.resize('INVOKE_DEFAULT'),
+}
+_SMART_PIVOT_DEBUG = True
 
 
-def _sync_smart_pivot_translate_ops_cache(prefs):
-    global _smart_pivot_extra_translate_ops_cache
-    _smart_pivot_extra_translate_ops_cache = getattr(prefs, "smart_pivot_extra_translate_ops", "") or ""
-
-
-def _translate_operator_ids_cached():
-    ids = set(_TRANSLATE_OPERATOR_IDS)
-    for part in _smart_pivot_extra_translate_ops_cache.split(","):
-        p = part.strip()
-        if p:
-            ids.add(p)
-    return ids
-
-
-def _window_has_modal_in_set(window, operator_ids):
-    try:
-        modops = window.modal_operators
-    except AttributeError:
-        return False
-    for op in modops:
-        if getattr(op, "bl_idname", None) in operator_ids:
-            return True
-    return False
-
-
-def _smart_pivot_empties_with_modal_ops(operator_ids):
-    """Smart-pivot empties whose active object is under a matching modal in any window."""
-    found = []
-    if not operator_ids:
-        return frozenset()
-    try:
-        wm = bpy.context.window_manager
-    except Exception:
-        return frozenset()
-    if wm:
-        for window in wm.windows:
-            if not _window_has_modal_in_set(window, operator_ids):
-                continue
-            vl = getattr(window, "view_layer", None)
-            if vl is None:
-                continue
-            try:
-                ao = vl.objects.active
-            except Exception:
-                continue
-            if ao and ao.get("is_smart_pivot_target"):
-                found.append(ao.as_pointer())
-    try:
-        op = bpy.context.active_operator
-    except Exception:
-        op = None
-    if op is not None and op.bl_idname in operator_ids:
-        try:
-            ao = bpy.context.active_object
-        except Exception:
-            ao = None
-        if ao and ao.get("is_smart_pivot_target"):
-            found.append(ao.as_pointer())
-    return frozenset(found)
-
-
-def _scene_object_by_pointer(scene, ptr):
-    for o in scene.objects:
-        if o.as_pointer() == ptr:
-            return o
-    return None
+def _active_smart_pivot_empty(context):
+    obj = getattr(context, "active_object", None)
+    if obj is None or obj.type != 'EMPTY':
+        return None
+    if not obj.get("is_smart_pivot_target"):
+        return None
+    return obj
 
 
 def _smart_pivot_view_layers_update(scene):
@@ -137,39 +69,66 @@ def _smart_pivot_pick_window_for_scene(scene):
     return None
 
 
-def _linked_smart_pivot_cameras(scene, empty):
-    """Cameras bound to this pivot (smart_pivot_target); Child Of may be absent between modals."""
-    out = []
-    for obj in scene.objects:
-        if obj.type == 'CAMERA' and obj.get("smart_pivot_target") == empty.name:
-            out.append(obj)
-    return out
+def _shared_scene_for_objects(*objs):
+    scene_ids = None
+    scene_by_id = {}
+
+    for obj in objs:
+        if obj is None:
+            return None
+        try:
+            scenes = list(obj.users_scene)
+        except Exception:
+            scenes = []
+        if not scenes:
+            try:
+                scene = bpy.context.scene
+            except Exception:
+                scene = None
+            if scene is not None:
+                scenes = [scene]
+        if not scenes:
+            return None
+        ids = set()
+        for scene in scenes:
+            sid = scene.as_pointer()
+            ids.add(sid)
+            scene_by_id[sid] = scene
+        if scene_ids is None:
+            scene_ids = ids
+        else:
+            scene_ids &= ids
+
+    if scene_ids:
+        return scene_by_id[next(iter(scene_ids))]
+    return None
 
 
-def _smart_pivot_linked_camera_selected_in_scene(scene, cams):
-    """
-    True if any linked camera is selected in a view layer for this scene.
-    Used to avoid baking/removing constraints while transform.translate / rotate / scale
-    is modal on the pivot empty *and* the camera is also being transformed — that can crash Blender.
-    """
-    if not cams:
-        return False
-    cam_set = frozenset(cams)
-    try:
-        wm = bpy.context.window_manager
-    except Exception:
-        return False
-    if not wm:
-        return False
-    for w in wm.windows:
-        if getattr(w, "scene", None) != scene:
-            continue
-        vl = getattr(w, "view_layer", None)
-        if vl is None:
-            continue
-        for o in vl.objects:
-            if o in cam_set and o.select_get():
-                return True
+def _linked_smart_pivot_camera(empty):
+    """Camera bound to this pivot from the empty's stored property."""
+    cam_name = empty.get("smart_pivot_camera")
+    if cam_name:
+        obj = bpy.data.objects.get(cam_name)
+        if obj is not None and obj.type == 'CAMERA':
+            return obj
+    return None
+
+
+def _active_smart_pivot_triplet(context):
+    empty = _active_smart_pivot_empty(context)
+    if empty is None:
+        return None, None, None
+    cam = _linked_smart_pivot_camera(empty)
+    if cam is None:
+        return empty, None, None
+    scene = _shared_scene_for_objects(empty, cam)
+    return empty, cam, scene
+
+
+def _has_live_target_childof(obj, empty):
+    for c in obj.constraints:
+        if c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf') and c.target == empty:
+            return True
     return False
 
 
@@ -225,7 +184,6 @@ def _apply_live_target_childof(scene, obj, empty):
 
 def _recreate_live_target_childof(scene, obj, empty):
     """Bake off any existing LiveTarget Child Of, then re-add above Track To; one Set Inverse."""
-    ctx = bpy.context
     _apply_live_target_childof(scene, obj, empty)
     track_idx = _find_live_target_track_to_index(obj)
     child_of = obj.constraints.new(type='CHILD_OF')
@@ -242,85 +200,103 @@ def _recreate_live_target_childof(scene, obj, empty):
         except Exception:
             pass
     _smart_pivot_view_layers_update(scene)
-    win = _smart_pivot_pick_window_for_scene(scene)
     try:
-        childof_set_inverse(ctx, obj, child_of.name, scene=scene, window=win)
+        child_of.set_inverse_pending = True
+        _smart_pivot_view_layers_update(scene)
     except Exception:
-        pass
+        try:
+            obj.constraints.remove(child_of)
+        except Exception:
+            pass
 
 
-def _smart_pivot_resolve_scene():
-    try:
-        s = bpy.context.scene
-        if s is not None:
-            return s
-    except Exception:
-        pass
-    try:
-        wm = bpy.context.window_manager
-        if wm and wm.windows:
-            s = wm.windows[0].scene
-            if s is not None:
-                return s
-    except Exception:
-        pass
-    return None
+class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
+    """Wraps G/R/S to react to confirm/cancel and keep Child Of lifecycle deterministic."""
+    bl_idname = "view3d.smart_pivot_transform_spy"
+    bl_label = "Smart Pivot Transform Spy"
+    bl_options = {'MODAL_PRIORITY'}
 
+    transform_type: bpy.props.EnumProperty(
+        items=[
+            ('TRANSLATE', "Translate", ""),
+            ('ROTATE',    "Rotate",    ""),
+            ('RESIZE',    "Scale",     ""),
+        ],
+        default='TRANSLATE',
+    )
 
-def smart_pivot_update():
-    """
-    Move (G): bake + remove Child Of when move starts (empty moves alone; camera does not follow via Child Of).
-    Rotate (R): recreate + Set Inverse when rotate modal starts; bake + remove when it ends. Resize does not use Child Of.
-    """
-    global _smart_pivot_prev_translate_ptrs, _smart_pivot_prev_rotate_ptrs
+    def _invoke_native_transform(self):
+        return _TRANSFORM_OPS[self.transform_type]()
 
-    scene = _smart_pivot_resolve_scene()
-    if scene is None:
-        return
+    def invoke(self, context, event):
+        empty, cam, scene = _active_smart_pivot_triplet(context)
+        self._ending = False
+        self._end_event = ""
+        self._empty_name = empty.name if empty else ""
+        self._camera_name = cam.name if cam else ""
+        if _SMART_PIVOT_DEBUG:
+            active = getattr(context, "active_object", None)
+            aname = active.name if active else "None"
+            atype = active.type if active else "None"
+            print(
+                f"[SmartPivotSpy] invoke        | op={self.transform_type} "
+                f"active={aname}({atype}) smart_empty={bool(empty)} "
+                f"linked_camera={bool(cam)}"
+            )
 
-    curr_t = _smart_pivot_empties_with_modal_ops(_translate_operator_ids_cached())
-    curr_rot = _smart_pivot_empties_with_modal_ops(_ROTATE_OPERATOR_IDS)
+        # Spy only for active smart-pivot empties with a valid linked camera.
+        # Otherwise stay fully transparent and let default G/R/S keymaps run.
+        if empty is None or cam is None or scene is None:
+            if _SMART_PIVOT_DEBUG:
+                reason = "no smart empty" if empty is None else ("no linked camera" if cam is None else "no shared scene")
+                print(f"[SmartPivotSpy] pass-through  | reason={reason}")
+            return {'PASS_THROUGH'}
 
-    prev_t = _smart_pivot_prev_translate_ptrs
-    prev_rot = _smart_pivot_prev_rotate_ptrs
+        # Apply expected pre-transform state.
+        if self.transform_type == 'ROTATE':
+            if not _has_live_target_childof(cam, empty):
+                _recreate_live_target_childof(scene, cam, empty)
+        else:
+            if _has_live_target_childof(cam, empty):
+                _apply_live_target_childof(scene, cam, empty)
 
-    def _for_ptrs(ptr_set):
-        for ptr in ptr_set:
-            empty = _scene_object_by_pointer(scene, ptr)
-            if empty is None or not empty.get("is_smart_pivot_target"):
-                continue
-            cams = _linked_smart_pivot_cameras(scene, empty)
-            if not cams:
-                continue
-            yield empty, cams
+        result = self._invoke_native_transform()
+        if 'RUNNING_MODAL' not in result and 'FINISHED' not in result:
+            # Immediate cancel/failure: ensure Child Of is not left behind.
+            if _has_live_target_childof(cam, empty):
+                _apply_live_target_childof(scene, cam, empty)
+            return {'CANCELLED'}
 
-    if prev_t is not None:
-        for empty, cams in _for_ptrs(curr_t - prev_t):
-            if _smart_pivot_linked_camera_selected_in_scene(scene, cams):
-                continue
-            for obj in cams:
-                _apply_live_target_childof(scene, obj, empty)
+        if _SMART_PIVOT_DEBUG:
+            print(
+                f"[SmartPivotSpy] entered modal | op={self.transform_type} "
+                f"empty={self._empty_name} camera={self._camera_name}"
+            )
 
-    if prev_rot is not None:
-        for empty, cams in _for_ptrs(curr_rot - prev_rot):
-            if _smart_pivot_linked_camera_selected_in_scene(scene, cams):
-                continue
-            for obj in cams:
-                _recreate_live_target_childof(scene, obj, empty)
-        for empty, cams in _for_ptrs(prev_rot - curr_rot):
-            for obj in cams:
-                _apply_live_target_childof(scene, obj, empty)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
 
-    _smart_pivot_prev_translate_ptrs = curr_t
-    _smart_pivot_prev_rotate_ptrs = curr_rot
+    def modal(self, context, event):
+        if self._ending:
+            empty = bpy.data.objects.get(self._empty_name)
+            cam = bpy.data.objects.get(self._camera_name)
+            scene = _shared_scene_for_objects(empty, cam) if empty and cam else None
+            if empty and cam and scene and _has_live_target_childof(cam, empty):
+                _apply_live_target_childof(scene, cam, empty)
+            if _SMART_PIVOT_DEBUG:
+                print(
+                    f"[SmartPivotSpy] exited modal  | op={self.transform_type} "
+                    f"end_event={self._end_event or 'unknown'}"
+                )
+            return {'FINISHED'}
 
+        # Detect both confirm and cancel keys while allowing transform to consume them.
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE', 'ESC'} and event.value in {'PRESS', 'CLICK'}:
+            self._ending = True
+            self._end_event = event.type
+            return {'PASS_THROUGH'}
 
-def smart_pivot_timer():
-    try:
-        smart_pivot_update()
-    except Exception:
-        pass
-    return 0.05
+        return {'PASS_THROUGH'}
 
 
 # ---------------------------------------------------------------------
@@ -358,6 +334,26 @@ def register_keymaps():
         addon_keymaps.append((km, kmi1))
         addon_keymaps.append((km, kmi2))
 
+        for key, ttype in (('G', 'TRANSLATE'), ('R', 'ROTATE'), ('S', 'RESIZE')):
+            kmi = km.keymap_items.new(
+                VIEW3D_OT_smart_pivot_transform_spy.bl_idname,
+                type=key,
+                value='PRESS',
+            )
+            kmi.properties.transform_type = ttype
+            addon_keymaps.append((km, kmi))
+
+        # Also bind in Object Mode where native object transforms are primarily handled.
+        km_obj = wm.keyconfigs.addon.keymaps.new(name='Object Mode', space_type='EMPTY')
+        for key, ttype in (('G', 'TRANSLATE'), ('R', 'ROTATE'), ('S', 'RESIZE')):
+            kmi = km_obj.keymap_items.new(
+                VIEW3D_OT_smart_pivot_transform_spy.bl_idname,
+                type=key,
+                value='PRESS',
+            )
+            kmi.properties.transform_type = ttype
+            addon_keymaps.append((km_obj, kmi))
+
 def update_hotkeys(self, context):
     unregister_keymaps()
     register_keymaps()
@@ -381,62 +377,19 @@ def purge_orphan_live_target_empties_for_base_name(base_name):
             continue
         purge_empty_if_no_constraint_target(o)
 
-def _first_view3d_area_region(screen):
-    if not screen:
-        return None, None
-    for area in screen.areas:
-        if area.type != 'VIEW_3D':
-            continue
-        for region in area.regions:
-            if region.type == 'WINDOW':
-                return area, region
-        return area, None
-    return None, None
+def _cleanup_live_target_object(obj):
+    for c in list(obj.constraints):
+        if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo'):
+            obj.constraints.remove(c)
+        elif c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf'):
+            obj.constraints.remove(c)
 
 
-def childof_set_inverse(context, obj, constraint_name, *, scene=None, window=None):
-    """Set Child Of inverse using operator. Timer/restricted context: pass scene + window."""
-    win = window or getattr(context, "window", None)
-    if win is None and scene is not None:
-        win = _smart_pivot_pick_window_for_scene(scene)
-    if not win:
-        return
-    scr = win.screen
-    area, region = _first_view3d_area_region(scr)
-    if area is None and getattr(context, "area", None) and context.area.type == 'VIEW_3D':
-        area = context.area
-        for r in area.regions:
-            if r.type == 'WINDOW':
-                region = r
-                break
-    override_kw = dict(
-        window=win,
-        screen=scr,
-        active_object=obj,
-        object=obj,
-        selected_objects=[obj],
-        selected_editable_objects=[obj],
-    )
-    if scene is not None:
-        override_kw["scene"] = scene
-    try:
-        vl = getattr(win, "view_layer", None)
-        if vl is not None:
-            override_kw["view_layer"] = vl
-    except Exception:
-        pass
-    if area is not None:
-        override_kw["area"] = area
-    if region is not None:
-        override_kw["region"] = region
-    with context.temp_override(**override_kw):
-        try:
-            bpy.ops.constraint.childof_set_inverse(constraint=constraint_name, owner='OBJECT')
-        except Exception:
-            pass
-
-def _update_extra_translate_ops_cache(self, context):
-    _sync_smart_pivot_translate_ops_cache(self)
+def _cleanup_live_target_empty(empty):
+    if empty is not None and empty.get("is_smart_pivot_target"):
+        del empty["is_smart_pivot_target"]
+    if empty is not None and "smart_pivot_camera" in empty:
+        del empty["smart_pivot_camera"]
 
 
 # ---------------------------------------------------------------------
@@ -477,13 +430,6 @@ class TargetAddonPreferences(bpy.types.AddonPreferences):
          default=False
     )
 
-    smart_pivot_extra_translate_ops: bpy.props.StringProperty(
-         name="Extra translate bl_idnames",
-         description="Comma-separated operator bl_idnames to treat as move/grab if your tools do not use transform.translate.",
-         default="",
-         update=_update_extra_translate_ops_cache,
-    )
-
     def draw(self, context):
         layout = self.layout
         box = layout.box()
@@ -504,7 +450,6 @@ class TargetAddonPreferences(bpy.types.AddonPreferences):
         box.label(text="Operator Settings")
         box.prop(self, "delete_empty_after")
         box.prop(self, "camera_orbit_pivot")
-        box.prop(self, "smart_pivot_extra_translate_ops")
 
 # ---------------------------------------------------------------------
 # Main Operator
@@ -566,7 +511,6 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
             self.report({'WARNING'}, "3D View not found, operation cancelled")
             return {'CANCELLED'}
         prefs = context.preferences.addons[__name__].preferences
-        _sync_smart_pivot_translate_ops_cache(prefs)
         self.delete_empty_after = prefs.delete_empty_after
         self.camera_orbit_pivot = prefs.camera_orbit_pivot
         if event.ctrl:
@@ -585,13 +529,7 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
         sel = context.selected_objects
 
         for obj in list(sel):
-            for c in list(obj.constraints):
-                if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo'):
-                    obj.constraints.remove(c)
-                elif c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf'):
-                    obj.constraints.remove(c)
-            if obj.type == 'CAMERA' and "smart_pivot_target" in obj:
-                del obj["smart_pivot_target"]
+            _cleanup_live_target_object(obj)
 
         # Create Empty
         if context.active_object and context.active_object in sel:
@@ -604,8 +542,8 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
         self.empty.empty_display_type = 'PLAIN_AXES'
         
         # Mark as smart pivot if orbit mode enabled
-        use_orbit = self.camera_orbit_pivot and not self.delete_empty_after
-        if use_orbit:
+        self.use_orbit = self.camera_orbit_pivot and not self.delete_empty_after
+        if self.use_orbit:
             self.empty["is_smart_pivot_target"] = True
             
         context.collection.objects.link(self.empty)
@@ -620,11 +558,10 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
         for obj in context.selected_objects:
             if obj == self.empty:
                 continue
-                
-            child_of = None
-            if use_orbit and obj.type == 'CAMERA':
-                obj["smart_pivot_target"] = self.empty.name
-                # LiveTarget_ChildOf is added only when rotating the pivot empty (smart_pivot_update).
+
+            if self.use_orbit and obj.type == 'CAMERA' and "smart_pivot_camera" not in self.empty:
+                self.empty["smart_pivot_camera"] = obj.name
+                # LiveTarget_ChildOf is added only by the transform spy during rotate.
 
             constraint = obj.constraints.new(type='TRACK_TO')
             constraint.name = "LiveTarget_TrackTo"
@@ -632,7 +569,7 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
             constraint.track_axis = self.track_axis
             constraint.up_axis = self.up_axis
             constraint.use_target_z = self.target_z
-            self.constrained_objects.append((obj, constraint, child_of))
+            self.constrained_objects.append((obj, constraint))
 
         context.view_layer.update()
 
@@ -641,7 +578,7 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
 
     def modal(self, context, event):
         # Update constraint settings in real-time
-        for obj, constraint, _child_of in self.constrained_objects:
+        for obj, constraint in self.constrained_objects:
             constraint.track_axis = self.track_axis
             constraint.up_axis = self.up_axis
             constraint.use_target_z = self.target_z
@@ -668,45 +605,27 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
             if self.delete_empty_after:
                 # Bake and cleanup
                 depsgraph = context.evaluated_depsgraph_get()
-                for obj, constraint, child_of in self.constrained_objects:
+                for obj, _constraint in self.constrained_objects:
                     eval_obj = obj.evaluated_get(depsgraph)
                     obj.matrix_world = eval_obj.matrix_world.copy()
-                    try:
-                        obj.constraints.remove(constraint)
-                    except:
-                        pass
-                    if child_of is not None:
-                        try:
-                            obj.constraints.remove(child_of)
-                        except:
-                            pass
-                    if obj.type == 'CAMERA' and "smart_pivot_target" in obj:
-                        del obj["smart_pivot_target"]
+                    _cleanup_live_target_object(obj)
 
-                if self.empty.get("is_smart_pivot_target"):
-                    del self.empty["is_smart_pivot_target"]
-                    
+                _cleanup_live_target_empty(self.empty)
                 bpy.data.objects.remove(self.empty, do_unlink=True)
                 self.report({'INFO'}, "Target validated and applied (baked)")
             else:
-                self.report({'INFO'}, "Target validated - Smart Pivot active")
+                if self.use_orbit:
+                    self.report({'INFO'}, "Target validated - Smart Pivot active")
+                else:
+                    self.report({'INFO'}, "Target validated")
             return {'FINISHED'}
 
         elif event.type in {'RIGHTMOUSE', 'ESC'}:
             # Cancel cleanup
-            for obj, constraint, child_of in self.constrained_objects:
-                try:
-                    obj.constraints.remove(constraint)
-                except:
-                    pass
-                if child_of is not None:
-                    try:
-                        obj.constraints.remove(child_of)
-                    except:
-                        pass
-                if obj.type == 'CAMERA' and "smart_pivot_target" in obj:
-                    del obj["smart_pivot_target"]
+            for obj, _constraint in self.constrained_objects:
+                _cleanup_live_target_object(obj)
 
+            _cleanup_live_target_empty(self.empty)
             bpy.data.objects.remove(self.empty, do_unlink=True)
             self.report({'INFO'}, "Operation cancelled")
             return {'CANCELLED'}
@@ -721,23 +640,12 @@ addon_keymaps = []
 def register():
     bpy.utils.register_class(TargetAddonPreferences)
     bpy.utils.register_class(OBJECT_OT_live_set_target)
+    bpy.utils.register_class(VIEW3D_OT_smart_pivot_transform_spy)
     register_keymaps()
-    try:
-        _sync_smart_pivot_translate_ops_cache(bpy.context.preferences.addons[__name__].preferences)
-    except Exception:
-        pass
-
-    if not bpy.app.timers.is_registered(smart_pivot_timer):
-        bpy.app.timers.register(smart_pivot_timer, persistent=True)
 
 def unregister():
-    global _smart_pivot_prev_translate_ptrs, _smart_pivot_prev_rotate_ptrs
-    _smart_pivot_prev_translate_ptrs = None
-    _smart_pivot_prev_rotate_ptrs = None
-    if bpy.app.timers.is_registered(smart_pivot_timer):
-        bpy.app.timers.unregister(smart_pivot_timer)
-
     unregister_keymaps()
+    bpy.utils.unregister_class(VIEW3D_OT_smart_pivot_transform_spy)
     bpy.utils.unregister_class(OBJECT_OT_live_set_target)
     bpy.utils.unregister_class(TargetAddonPreferences)
 
