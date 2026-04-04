@@ -1,12 +1,12 @@
 bl_info = {
     "name": "Target, Please! (Smart Pivot)",
     "author": "Ilyasse L",
-    "version": (1, 3, 0),
+    "version": (1, 3, 1),
     "blender": (4, 2, 0),
     "location": "3D View",
     "description": (
         "Creates tracking target with smart orbit pivot. "
-        "Child Of is added only while rotating the pivot empty (camera orbits); "
+        "Child Of is added only while rotating the pivot empty (camera/light orbits); "
         "it is removed when rotate ends and when move starts if present. Track To handles aiming when not rotating."
     ),
     "category": "Object",
@@ -69,10 +69,28 @@ def _shared_scene_for_objects(*objs):
     return scene_by_id[next(iter(common))] if common else None
 
 
-def _linked_smart_pivot_camera(empty):
-    """Camera bound to this pivot from the empty's stored property."""
-    obj = bpy.data.objects.get(empty.get("smart_pivot_camera", ""))
-    return obj if (obj and obj.type == 'CAMERA') else None
+def _linked_smart_pivot_orbit_object(empty):
+    """Orbit object bound to this pivot from the empty's stored property."""
+    name = empty.get("smart_pivot_orbit_object", "") or empty.get("smart_pivot_camera", "")
+    obj = bpy.data.objects.get(name)
+    return obj if (obj and obj.type in {'CAMERA', 'LIGHT'}) else None
+
+
+def _linked_smart_pivot_empty_from_orbit_object(obj):
+    """Smart pivot empty targeted by this orbit object (camera/light)."""
+    if obj is None or obj.type not in {'CAMERA', 'LIGHT'}:
+        return None
+    for c in obj.constraints:
+        if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo'):
+            target = getattr(c, "target", None)
+            if target and target.type == 'EMPTY' and target.get("is_smart_pivot_target"):
+                return target
+    for c in obj.constraints:
+        if c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf'):
+            target = getattr(c, "target", None)
+            if target and target.type == 'EMPTY' and target.get("is_smart_pivot_target"):
+                return target
+    return None
 
 
 def _has_live_target_childof(obj, empty):
@@ -160,31 +178,51 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         return _TRANSFORM_OPS[self.transform_type]()
 
     def invoke(self, context, event):
+        active = getattr(context, "active_object", None)
         empty = _active_smart_pivot_empty(context)
-        cam = _linked_smart_pivot_camera(empty) if empty else None
-        scene = _shared_scene_for_objects(empty, cam) if cam else None
+        orbit_obj = _linked_smart_pivot_orbit_object(empty) if empty else None
+
+        # Also support starting G/R/S directly from the linked camera/light.
+        self._active_is_orbit_object = bool(active and active.type in {'CAMERA', 'LIGHT'})
+        if empty is None and self._active_is_orbit_object:
+            orbit_obj = active
+            empty = _linked_smart_pivot_empty_from_orbit_object(orbit_obj)
+
+        scene = _shared_scene_for_objects(empty, orbit_obj) if orbit_obj else None
         self._ending = False
         self._empty_name = empty.name if empty else ""
-        self._camera_name = cam.name if cam else ""
+        self._orbit_object_name = orbit_obj.name if orbit_obj else ""
+        self._restore_childof_after_translate = False
+        self._had_childof_before_translate = False
+        self._translate_was_cancelled = False
 
-        # Spy only for active smart-pivot empties with a valid linked camera.
+        # Spy only for active smart-pivot empties with a valid linked orbit object.
         # Otherwise stay fully transparent and let default G/R/S keymaps run.
-        if empty is None or cam is None or scene is None:
+        if empty is None or orbit_obj is None or scene is None:
             return {'PASS_THROUGH'}
 
         # Apply expected pre-transform state.
-        if self.transform_type == 'ROTATE':
-            if not _has_live_target_childof(cam, empty):
-                _recreate_live_target_childof(scene, cam, empty)
+        # Only Translate (Grab) should force-remove Child Of.
+        if self.transform_type == 'TRANSLATE':
+            had_childof = _has_live_target_childof(orbit_obj, empty)
+            self._had_childof_before_translate = had_childof
+            if had_childof:
+                _apply_live_target_childof(scene, orbit_obj, empty)
+            # If user grabbed camera/light directly, restore Child Of after grab ends.
+            self._restore_childof_after_translate = self._active_is_orbit_object and had_childof
         else:
-            if _has_live_target_childof(cam, empty):
-                _apply_live_target_childof(scene, cam, empty)
+            if not _has_live_target_childof(orbit_obj, empty):
+                _recreate_live_target_childof(scene, orbit_obj, empty)
 
         result = self._invoke_native_transform()
         if 'RUNNING_MODAL' not in result and 'FINISHED' not in result:
-            # Immediate cancel/failure: ensure Child Of is not left behind.
-            if _has_live_target_childof(cam, empty):
-                _apply_live_target_childof(scene, cam, empty)
+            # Immediate cancel/failure: restore original Child Of state for direct camera/light grab.
+            if self.transform_type == 'TRANSLATE':
+                if self._had_childof_before_translate:
+                    if not _has_live_target_childof(orbit_obj, empty):
+                        _recreate_live_target_childof(scene, orbit_obj, empty)
+                elif _has_live_target_childof(orbit_obj, empty):
+                    _apply_live_target_childof(scene, orbit_obj, empty)
             return {'CANCELLED'}
 
         context.window_manager.modal_handler_add(self)
@@ -193,14 +231,22 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
     def modal(self, context, event):
         if self._ending:
             empty = bpy.data.objects.get(self._empty_name)
-            cam = bpy.data.objects.get(self._camera_name)
-            scene = _shared_scene_for_objects(empty, cam) if empty and cam else None
-            if empty and cam and scene and _has_live_target_childof(cam, empty):
-                _apply_live_target_childof(scene, cam, empty)
+            orbit_obj = bpy.data.objects.get(self._orbit_object_name)
+            scene = _shared_scene_for_objects(empty, orbit_obj) if empty and orbit_obj else None
+            if (
+                self.transform_type == 'TRANSLATE'
+                and empty and orbit_obj and scene
+            ):
+                if self._translate_was_cancelled and self._had_childof_before_translate:
+                    if not _has_live_target_childof(orbit_obj, empty):
+                        _recreate_live_target_childof(scene, orbit_obj, empty)
+                elif not self._restore_childof_after_translate and _has_live_target_childof(orbit_obj, empty):
+                    _apply_live_target_childof(scene, orbit_obj, empty)
             return {'FINISHED'}
 
         # Detect both confirm and cancel keys while allowing transform to consume them.
         if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE', 'ESC'} and event.value in {'PRESS', 'CLICK'}:
+            self._translate_was_cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
             self._ending = True
             return {'PASS_THROUGH'}
 
@@ -285,6 +331,8 @@ def _cleanup_live_target_object(obj):
 def _cleanup_live_target_empty(empty):
     if empty is not None and empty.get("is_smart_pivot_target"):
         del empty["is_smart_pivot_target"]
+    if empty is not None and "smart_pivot_orbit_object" in empty:
+        del empty["smart_pivot_orbit_object"]
     if empty is not None and "smart_pivot_camera" in empty:
         del empty["smart_pivot_camera"]
 
@@ -323,7 +371,7 @@ class TargetAddonPreferences(bpy.types.AddonPreferences):
 
     camera_orbit_pivot: bpy.props.BoolProperty(
          name="Camera Orbit Pivot",
-         description="When keeping the target Empty: a Child Of is used only while rotating the Empty (orbit); translating the Empty uses Track To only.",
+         description="When keeping the target Empty: for camera/light objects, Child Of is used only while rotating the Empty (orbit); translating the Empty uses Track To only.",
          default=False
     )
 
@@ -456,8 +504,8 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
             if obj == self.empty:
                 continue
 
-            if self.use_orbit and obj.type == 'CAMERA' and "smart_pivot_camera" not in self.empty:
-                self.empty["smart_pivot_camera"] = obj.name
+            if self.use_orbit and obj.type in {'CAMERA', 'LIGHT'} and "smart_pivot_orbit_object" not in self.empty:
+                self.empty["smart_pivot_orbit_object"] = obj.name
                 # LiveTarget_ChildOf is added only by the transform spy during rotate.
 
             constraint = obj.constraints.new(type='TRACK_TO')
