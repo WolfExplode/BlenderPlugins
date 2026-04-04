@@ -148,6 +148,11 @@ def _collect_actions_for_object(obj):
     return actions
 
 
+def _is_baked_action_name(name):
+    """Exclude Variable Playback outputs and similar: …_Baked, …_Blend_Baked, optional _ShapeKeys suffix."""
+    return bool(name) and "_Baked" in name
+
+
 def get_action_slot_enum_items_for_object(obj):
     """
     Build enum items for all (action, slot) combinations on this object.
@@ -161,6 +166,8 @@ def get_action_slot_enum_items_for_object(obj):
         return items
 
     for action_name in sorted(actions):
+        if _is_baked_action_name(action_name):
+            continue
         action = bpy.data.actions.get(action_name)
         if not action:
             continue
@@ -176,6 +183,9 @@ def get_action_slot_enum_items_for_object(obj):
         else:
             # Legacy / non-slotted action
             items.append((action.name, action.name, ""))
+
+    if not items:
+        items.append(("NONE", "No actions found", ""))
 
     return items
 
@@ -335,6 +345,24 @@ def update_strength_curve(self, context):
         if "variable_playback_strength_influence_pairs" in context.scene:
             del context.scene["variable_playback_strength_influence_pairs"]
 
+# Custom property on source object's mesh data for drivers (Single Property on Mesh: '["variable_playback_bpm"]')
+VARIABLE_PLAYBACK_BPM_PROP = "variable_playback_bpm"
+
+
+def sample_bpm_from_pairs(time_seconds, pairs):
+    """Sample BPM from time/rate pairs (same logic as bake/preview)."""
+    if time_seconds <= pairs[0][0]:
+        return pairs[0][1]
+    if time_seconds >= pairs[-1][0]:
+        return pairs[-1][1]
+    for i in range(len(pairs) - 1):
+        t0, bpm0 = pairs[i]
+        t1, bpm1 = pairs[i + 1]
+        if t0 <= time_seconds <= t1:
+            factor = (time_seconds - t0) / (t1 - t0)
+            return bpm0 + factor * (bpm1 - bpm0)
+    return pairs[-1][1]
+
 # ============================================================================ #
 # PROPERTY GROUPS
 # ============================================================================ #
@@ -463,7 +491,7 @@ class VariablePlaybackProps(PropertyGroup):
     )
 
     bake_speed_scale: FloatProperty(
-        name="Baked Speed",
+        name="Speed Multiplier",
         description="Global speed multiplier for the baked animation (1.0 = original, >1.0 = faster, <1.0 = slower)",
         default=1.0,
         min=0.05,
@@ -473,7 +501,7 @@ class VariablePlaybackProps(PropertyGroup):
     
     simplify_tolerance: FloatProperty(
         name="Simplify F-Curve Tolerance",
-        description="Remove keyframes deviating less than this from linear. 0 = disabled",
+        description="Remove keyframes deviating less than this. Higher = fewer keyframes",
         default=0.001,
         min=0.0,
         soft_min=0.0001,
@@ -497,65 +525,58 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Animation"
-    
+    bl_order = 0
+
     def draw(self, context):
         layout = self.layout
         props = context.scene.variable_playback_props
-        
+
+        layout.label(text="Source & Animation", icon='OUTLINER_OB_ARMATURE')
         layout.prop(props, "source_object", icon='OBJECT_DATA')
-        
+
         has_anim_data = False
         if props.source_object:
-            if props.source_object.animation_data: 
+            if props.source_object.animation_data:
                 has_anim_data = True
             if (props.source_object.data and hasattr(props.source_object.data, 'shape_keys') and
                 props.source_object.data.shape_keys and props.source_object.data.shape_keys.animation_data):
                 has_anim_data = True
-        
+
         if props.source_object and has_anim_data:
-            # Multiple animation toggle
             row = layout.row(align=True)
             row.prop(props, "use_multiple_animations", icon='RADIOBUT_ON', text="Multi-Animation Mode")
-            
+
             if props.use_multiple_animations:
                 box = layout.box()
                 box.label(text="Animation Slots", icon='ANIM')
-                
-                # Total weight indicator
+
                 total_weight = sum(slot.weight for slot in props.animation_slots)
                 if abs(total_weight - 100.0) > 0.1:
                     box.label(text=f"Total: {total_weight:.1f}%", icon='ERROR')
                 else:
                     box.label(text=f"Total: 100%", icon='CHECKMARK')
-                
-                # Slots list
+
                 for i, slot in enumerate(props.animation_slots):
                     row = box.row(align=True)
                     row.prop(slot, "action", text=f"#{i+1}")
                     row.prop(slot, "weight", text="")
-                
-                # Add/Remove buttons
+
                 row = box.row(align=True)
                 row.operator("variable_playback.add_slot", icon='ADD')
                 row.operator("variable_playback.remove_slot", icon='REMOVE')
-                
-                # Disable single action selector
+
                 layout.label(text="Single action disabled in multi-mode", icon='INFO')
             else:
-                # Original single action UI
                 layout.prop(props, "source_action", icon='ACTION')
                 if props.source_action and props.source_action != "NONE":
                     action, slot_id = parse_action_enum(props.source_action)
                     if action:
-                        # Determine target datablock (object or shape keys)
-                        target_db = (props.source_object.data.shape_keys if 
-                                     is_shape_key_action(props.source_object, action) 
+                        target_db = (props.source_object.data.shape_keys if
+                                     is_shape_key_action(props.source_object, action)
                                      else props.source_object)
-                        
-                        # Get fcurves for the SPECIFIC SLOT, not the entire action
+
                         slot_fcurves = get_action_fcurves_for_slot(action, slot_id, datablock=target_db)
-                        
-                        # Calculate frame range from slot's actual keyframes
+
                         fr = (0, 0)
                         if slot_fcurves:
                             min_frame = float('inf')
@@ -570,29 +591,38 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
                                             max_frame = frame
                             if min_frame != float('inf'):
                                 fr = (min_frame, max_frame)
-                        
-                        # Fallback to action range if slot has no keyframes
+
                         if fr == (0, 0):
-                            if hasattr(action, "frame_range"): fr = action.frame_range
-                            elif hasattr(action, "curve_frame_range"): fr = action.curve_frame_range
-                            else: fr = (0,0)
+                            if hasattr(action, "frame_range"):
+                                fr = action.frame_range
+                            elif hasattr(action, "curve_frame_range"):
+                                fr = action.curve_frame_range
+                            else:
+                                fr = (0, 0)
 
                         col = layout.column(align=True)
                         col.label(text=f"Frames: {fr[0]:.0f} - {fr[1]:.0f}", icon='TIME')
                         dur = (fr[1] - fr[0]) / context.scene.render.fps if context.scene.render.fps else 0
-                        col.label(text=f"Base Duration: {dur:.2f}s", icon='PLAY')  # Fixed: was fr[2]
+                        col.label(text=f"Base Duration: {dur:.2f}s", icon='PLAY')
         else:
             layout.label(text="Select an object with animation data", icon='INFO')
-        
-        layout.separator()
+
+
+class VARIABLEPLAYBACK_PT_section_bpm(Panel):
+    bl_label = "BPM Curve"
+    bl_idname = "VARIABLEPLAYBACK_PT_section_bpm"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Animation"
+    bl_parent_id = "VARIABLEPLAYBACK_PT_panel"
+    bl_order = 10
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.variable_playback_props
+
         layout.prop(props, "bpm_curve", icon='CURVE_DATA')
-        
-        box = layout.box()
-        box.label(text="Output Frame Range", icon='PREVIEW_RANGE')
-        col = box.column(align=True)
-        col.prop(context.scene, "frame_start", text="Start")
-        col.prop(context.scene, "frame_end", text="End")
-        
+
         if "variable_playback_time_rate_pairs" in context.scene:
             pairs = context.scene["variable_playback_time_rate_pairs"]
             box = layout.box()
@@ -603,11 +633,41 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
                 for i in range(min(3, len(pairs))):
                     t, bpm = pairs[i]
                     col.label(text=f"  t={t:.2f}s, BPM={bpm:.1f}")
-        
+
         col = layout.column(align=True)
         col.operator("variable_playback.read_curve", icon='IMPORT')
-        
-        layout.separator()
+        mesh_data = props.source_object.data if props.source_object else None
+        is_source_mesh = isinstance(mesh_data, bpy.types.Mesh)
+        row = col.row(align=True)
+        row.operator("variable_playback.keyframe_bpm_on_source", icon='KEYTYPE_KEYFRAME_VEC')
+        row.enabled = (
+            "variable_playback_time_rate_pairs" in context.scene
+            and props.source_object is not None
+            and is_source_mesh
+        )
+        row = col.row(align=True)
+        row.operator("variable_playback.copy_bpm_as_new_driver", icon='DECORATE_DRIVER')
+        row.enabled = (
+            props.source_object is not None
+            and is_source_mesh
+            and VARIABLE_PLAYBACK_BPM_PROP in mesh_data
+        )
+
+
+class VARIABLEPLAYBACK_PT_section_strength(Panel):
+    bl_label = "Strength / Influence"
+    bl_idname = "VARIABLEPLAYBACK_PT_section_strength"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Animation"
+    bl_parent_id = "VARIABLEPLAYBACK_PT_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 20
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.variable_playback_props
+
         layout.prop(props, "strength_curve", icon='CURVE_DATA')
 
         if "variable_playback_strength_influence_pairs" in context.scene:
@@ -624,7 +684,21 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         strength_col = layout.column(align=True)
         strength_col.operator("variable_playback.read_strength_curve", icon='IMPORT')
 
-        layout.separator()
+
+class VARIABLEPLAYBACK_PT_section_variation(Panel):
+    bl_label = "Random per Loop"
+    bl_idname = "VARIABLEPLAYBACK_PT_section_variation"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Animation"
+    bl_parent_id = "VARIABLEPLAYBACK_PT_panel"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 30
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.variable_playback_props
+
         box = layout.box()
         box.label(text="Random Intensity per Loop", icon='SHADERFX')
         col = box.column(align=True)
@@ -634,7 +708,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             row = col.row(align=True)
             row.prop(props, "random_intensity_min", text="Min")
             row.prop(props, "random_intensity_max", text="Max")
-        # Random Speed UI
+
         box = layout.box()
         box.label(text="Random Speed per Loop", icon='TIME')
         col = box.column(align=True)
@@ -647,12 +721,26 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             row = col.row(align=True)
             row.prop(props, "random_speed_min", text="Min")
             row.prop(props, "random_speed_max", text="Max")
+
+
+class VARIABLEPLAYBACK_PT_section_bake(Panel):
+    bl_label = "Bake & Output"
+    bl_idname = "VARIABLEPLAYBACK_PT_section_bake"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Animation"
+    bl_parent_id = "VARIABLEPLAYBACK_PT_panel"
+    bl_order = 40
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.variable_playback_props
+
         layout.prop(props, "bake_speed_scale", slider=True)
-        
+
         col = layout.column(align=True)
         col.prop(props, "simplify_tolerance", slider=True)
-        col.label(text="0 = disabled • Higher = fewer keyframes", icon='INFO')
-        
+
         col = layout.column(align=True)
         row = col.row(align=True)
         row.operator("variable_playback.preview", icon='MONKEY')
@@ -842,6 +930,100 @@ class VARIABLEPLAYBACK_OT_read_strength_curve(Operator):
         return {'FINISHED'}
 
 
+class VARIABLEPLAYBACK_OT_keyframe_bpm_on_source(Operator):
+    """Keyframe BPM samples onto the source mesh's custom property (for drivers)."""
+    bl_idname = "variable_playback.keyframe_bpm_on_source"
+    bl_label = "Keyframe BPM on Source Mesh"
+    bl_description = (
+        "Write interpolated BPM from loaded curve data to the source object's mesh "
+        f'custom property "{VARIABLE_PLAYBACK_BPM_PROP}" for each frame in the scene range'
+    )
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.variable_playback_props
+        obj = props.source_object
+        if obj is None:
+            self.report({'ERROR'}, "No source object selected")
+            return {'CANCELLED'}
+        mesh = obj.data
+        if not isinstance(mesh, bpy.types.Mesh):
+            self.report({'ERROR'}, "Source object has no mesh data")
+            return {'CANCELLED'}
+        pairs = context.scene.get("variable_playback_time_rate_pairs")
+        if not pairs:
+            self.report({'ERROR'}, "No curve data loaded")
+            return {'CANCELLED'}
+
+        prop_key = VARIABLE_PLAYBACK_BPM_PROP
+        data_path = f'["{prop_key}"]'
+
+        if prop_key in mesh and not isinstance(mesh[prop_key], (int, float)):
+            self.report({'ERROR'}, f"Custom property '{prop_key}' must be numeric")
+            return {'CANCELLED'}
+        if prop_key not in mesh:
+            mesh[prop_key] = 0.0
+
+        if not mesh.animation_data:
+            mesh.animation_data_create()
+        if mesh.animation_data.action is None:
+            mesh.animation_data.action = bpy.data.actions.new(
+                name=f"{mesh.name}_VariablePlaybackBPM"
+            )
+
+        fps = context.scene.render.fps or 1
+        frame_start = context.scene.frame_start
+        frame_end = context.scene.frame_end
+
+        for frame in range(frame_start, frame_end + 1):
+            t = frame / fps
+            mesh[prop_key] = float(sample_bpm_from_pairs(t, pairs))
+            mesh.keyframe_insert(data_path=data_path, frame=frame)
+
+        self.report(
+            {'INFO'},
+            f"Keyed BPM on mesh '{mesh.name}' → custom property [\"{prop_key}\"] "
+            f"({frame_end - frame_start + 1} frames)",
+        )
+        return {'FINISHED'}
+
+
+class VARIABLEPLAYBACK_OT_copy_bpm_as_new_driver(Operator):
+    """Show mesh BPM in a popup so you can use Blender's Copy as New Driver (internal clipboard)."""
+    bl_idname = "variable_playback.copy_bpm_as_new_driver"
+    bl_label = "Copy as New Driver…"
+    bl_description = (
+        "Open the mesh BPM custom property; right-click it and choose Copy as New Driver, "
+        "then Paste Driver on any property"
+    )
+    bl_options = {'REGISTER'}
+
+    @classmethod
+    def poll(cls, context):
+        props = getattr(context.scene, "variable_playback_props", None)
+        if not props or not props.source_object:
+            return False
+        mesh = props.source_object.data
+        if not isinstance(mesh, bpy.types.Mesh):
+            return False
+        return VARIABLE_PLAYBACK_BPM_PROP in mesh
+
+    def draw(self, context):
+        layout = self.layout
+        mesh = context.scene.variable_playback_props.source_object.data
+        layout.label(text="Right-click the property, then Copy as New Driver")
+        layout.prop(mesh, f'["{VARIABLE_PLAYBACK_BPM_PROP}"]', text=VARIABLE_PLAYBACK_BPM_PROP)
+
+    def invoke(self, context, event):
+        if not self.poll(context):
+            self.report({'ERROR'}, "Source mesh is missing the BPM custom property")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_popup(self, width=320)
+
+    def execute(self, context):
+        return {'FINISHED'}
+
+
 class VARIABLEPLAYBACK_OT_preview(Operator):
     """Create preview visualization showing phase and rate"""
     bl_idname = "variable_playback.preview"
@@ -937,18 +1119,6 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
                     return i
             return len(action_data_list) - 1
         
-        # Sample animation
-        def sample_bpm(time_seconds):
-            if time_seconds <= pairs[0][0]: return pairs[0][1]
-            if time_seconds >= pairs[-1][0]: return pairs[-1][1]
-            for i in range(len(pairs) - 1):
-                t0, bpm0 = pairs[i]
-                t1, bpm1 = pairs[i + 1]
-                if t0 <= time_seconds <= t1:
-                    factor = (time_seconds - t0) / (t1 - t0)
-                    return bpm0 + factor * (bpm1 - bpm0)
-            return pairs[-1][1]
-        
         fps = context.scene.render.fps
         phase = 0.0
         frame_start = context.scene.frame_start
@@ -958,7 +1128,7 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
         
         for frame in range(frame_start, frame_end + 1):
             t = frame / fps
-            bpm = sample_bpm(t)
+            bpm = sample_bpm_from_pairs(t, pairs)
             rate = max(bpm, 0.0) / 60.0
             phase += rate * (1.0 / fps) * speed_scale
             
@@ -1168,7 +1338,6 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             target_datablock.animation_data_create()
         
         # Temporarily assign to create curves
-        prev_action = target_datablock.animation_data.action
         target_datablock.animation_data.action = baked_action
 
         # Ensure the baked action's slot is named to match the action
@@ -1256,7 +1425,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         for i, frame in enumerate(range(frame_start, frame_end + 1)):
             wm.progress_update(i)
             t = frame / fps
-            bpm = self.sample_bpm(t, pairs)
+            bpm = sample_bpm_from_pairs(t, pairs)
             base_rate = max(bpm, 0.0) / 60.0
             adjusted_rate = base_rate * current_loop_speed
             phase += adjusted_rate * (1.0 / fps) * speed_scale
@@ -1372,8 +1541,17 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             if total_removed > 0:
                 print(f"VariablePlayback: Simplified {total_removed} redundant keyframes")
 
-        target_datablock.animation_data.action = prev_action  # Restore previous action
-        baked_action.use_fake_user = True
+        anim = target_datablock.animation_data
+        track = anim.nla_tracks.new()
+        track.name = "Variable Playback"
+        strip = track.strips.new(baked_name, frame_start, baked_action)
+        strip.frame_end = frame_end
+        strip.action_frame_start = frame_start
+        strip.action_frame_end = frame_end
+        strip.blend_type = 'REPLACE'
+
+        # Clear active action so the source clip does not stack with the new NLA strip.
+        anim.action = None
 
         mode_msg = []
         if props.use_multiple_animations:
@@ -1383,20 +1561,8 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         if props.use_random_speed:
             mode_msg.append("random speed")
         mode_str = " + ".join(mode_msg) or "single animation"
-        self.report({'INFO'}, f"Baked {frame_end - frame_start + 1} frames to '{baked_name}' ({mode_str})")
+        self.report({'INFO'}, f"Baked {frame_end - frame_start + 1} frames to '{baked_name}' on NLA track '{track.name}' ({mode_str})")
         return {'FINISHED'}
-    
-    def sample_bpm(self, time_seconds, pairs):
-        """Sample BPM from time/rate pairs."""
-        if time_seconds <= pairs[0][0]: return pairs[0][1]
-        if time_seconds >= pairs[-1][0]: return pairs[-1][1]
-        for i in range(len(pairs) - 1):
-            t0, bpm0 = pairs[i]
-            t1, bpm1 = pairs[i + 1]
-            if t0 <= time_seconds <= t1:
-                factor = (time_seconds - t0) / (t1 - t0)
-                return bpm0 + factor * (bpm1 - bpm0)
-        return pairs[-1][1]
 
 
 class VARIABLEPLAYBACK_OT_add_slot(Operator):
@@ -1438,8 +1604,14 @@ classes = (
     AnimationSlot,
     VariablePlaybackProps,
     VARIABLEPLAYBACK_PT_panel,
+    VARIABLEPLAYBACK_PT_section_bpm,
+    VARIABLEPLAYBACK_PT_section_strength,
+    VARIABLEPLAYBACK_PT_section_variation,
+    VARIABLEPLAYBACK_PT_section_bake,
     VARIABLEPLAYBACK_OT_read_curve,
     VARIABLEPLAYBACK_OT_read_strength_curve,
+    VARIABLEPLAYBACK_OT_keyframe_bpm_on_source,
+    VARIABLEPLAYBACK_OT_copy_bpm_as_new_driver,
     VARIABLEPLAYBACK_OT_preview,
     VARIABLEPLAYBACK_OT_bake,
     VARIABLEPLAYBACK_OT_add_slot,
