@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Import Export Geo Nodes",
-    "author": "WolfExplode + Codex",
+    "author": "WXP",
     "version": (1, 0, 0),
     "blender": (5, 1, 0),
     "location": "Geometry Node Editor > Sidebar > Import/Export",
-    "description": "Import and export Geometry Nodes using a shared JSON format",
+    "description": "Import and export Geometry Nodes via JSON",
     "category": "Node",
 }
 
@@ -24,6 +24,8 @@ EXCLUDED_NODE_PROPS = {
     "select", "mute", "hide", "show_options", "show_preview", "show_texture",
     "color", "use_custom_color", "warning_propagation",
 }
+IMPORT_OFFSET_X = 20.0
+IMPORT_OFFSET_Y = -20.0
 
 
 def _extract_json_block(raw_text: str) -> str:
@@ -67,8 +69,13 @@ def _build_tree_from_spec(tree, spec: dict):
         if "location" in node_spec:
             loc = node_spec["location"]
             if isinstance(loc, (list, tuple)) and len(loc) >= 2:
-                node.location = (float(loc[0]), float(loc[1]))
+                node.location = (
+                    float(loc[0]) + IMPORT_OFFSET_X,
+                    float(loc[1]) + IMPORT_OFFSET_Y,
+                )
         for prop_name, prop_value in node_spec.get("props", {}).items():
+            if prop_name == "node_tree" and isinstance(prop_value, str) and node.bl_idname == "GeometryNodeGroup":
+                prop_value = bpy.data.node_groups.get(prop_value)
             if not hasattr(node, prop_name):
                 continue
             prop_meta = node.bl_rna.properties.get(prop_name)
@@ -122,10 +129,13 @@ def _to_jsonable(value):
     return None
 
 
-def _export_tree_to_spec(geo_tree):
+def _export_tree_to_spec(geo_tree, selected_only=False):
     nodes_out = []
     links_out = []
-    for node in geo_tree.nodes:
+    nodes = [node for node in geo_tree.nodes if node.select] if selected_only else list(geo_tree.nodes)
+    selected_names = {node.name for node in nodes}
+
+    for node in nodes:
         node_spec = {
             "id": node.name,
             "type": node.bl_idname,
@@ -163,10 +173,13 @@ def _export_tree_to_spec(geo_tree):
         if inputs:
             node_spec["inputs"] = inputs
         nodes_out.append(node_spec)
+
     for link in geo_tree.links:
         from_node = link.from_node
         to_node = link.to_node
         if from_node is None or to_node is None:
+            continue
+        if selected_only and (from_node.name not in selected_names or to_node.name not in selected_names):
             continue
         from_socket_idx = next((i for i, s in enumerate(from_node.outputs) if s == link.from_socket), None)
         to_socket_idx = next((i for i, s in enumerate(to_node.inputs) if s == link.to_socket), None)
@@ -191,9 +204,9 @@ def _get_open_geo_tree(context):
     return tree, None
 
 
-class AI_GEO_OT_build_from_text(bpy.types.Operator):
+class GEO_NODES_OT_build_from_text(bpy.types.Operator):
     """Create Geometry Nodes from JSON"""
-    bl_idname = "ai_geo.build_from_text"
+    bl_idname = "geo_nodes.build_from_text"
     bl_label = "Build Geo Nodes From Text"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -204,11 +217,11 @@ class AI_GEO_OT_build_from_text(bpy.types.Operator):
             self.report({'ERROR'}, error)
             return {'CANCELLED'}
 
-        source_mode = scene.ai_geo_source_mode
+        source_mode = scene.geo_nodes_source_mode
         if source_mode == 'CLIPBOARD':
             raw = context.window_manager.clipboard
         else:
-            text_block = scene.ai_geo_textblock
+            text_block = scene.geo_nodes_textblock
             raw = text_block.as_string() if text_block else ""
 
         json_text = _extract_json_block(raw)
@@ -227,9 +240,9 @@ class AI_GEO_OT_build_from_text(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class AI_GEO_OT_export_geo_nodes_json(bpy.types.Operator):
+class GEO_NODES_OT_export_geo_nodes_json(bpy.types.Operator):
     """Export current Geometry Node tree to JSON"""
-    bl_idname = "ai_geo.export_geo_nodes_json"
+    bl_idname = "geo_nodes.export_geo_nodes_json"
     bl_label = "Export"
 
     def execute(self, context):
@@ -238,24 +251,53 @@ class AI_GEO_OT_export_geo_nodes_json(bpy.types.Operator):
         if error:
             self.report({'ERROR'}, error)
             return {'CANCELLED'}
-        export_path = scene.ai_geo_export_path
+        export_path = scene.geo_nodes_export_path
+        export_selected_only = scene.geo_nodes_export_selected_only
 
         if not export_path:
             self.report({'ERROR'}, "No export path set")
             return {'CANCELLED'}
+
+        if export_selected_only and not any(node.select for node in geo_tree.nodes):
+            self.report({'ERROR'}, "No nodes selected")
+            return {'CANCELLED'}
+
         filepath = os.path.join(
             bpy.path.abspath(export_path),
             f"{geo_tree.name}_nodes.json",
         )
         with open(filepath, "w", encoding="utf-8") as file:
-            json.dump(_export_tree_to_spec(geo_tree), file, indent=2)
+            json.dump(_export_tree_to_spec(geo_tree, selected_only=export_selected_only), file, indent=2)
         self.report({'INFO'}, f"Exported JSON to {filepath}")
         return {'FINISHED'}
 
 
-class AI_GEO_PT_panel(bpy.types.Panel):
+class GEO_NODES_OT_copy_geo_nodes_json(bpy.types.Operator):
+    """Copy current Geometry Node tree JSON to clipboard"""
+    bl_idname = "geo_nodes.copy_geo_nodes_json"
+    bl_label = "Copy JSON To Clipboard"
+
+    def execute(self, context):
+        scene = context.scene
+        geo_tree, error = _get_open_geo_tree(context)
+        if error:
+            self.report({'ERROR'}, error)
+            return {'CANCELLED'}
+
+        selected_only = scene.geo_nodes_export_selected_only
+        if selected_only and not any(node.select for node in geo_tree.nodes):
+            self.report({'ERROR'}, "No nodes selected")
+            return {'CANCELLED'}
+
+        spec = _export_tree_to_spec(geo_tree, selected_only=selected_only)
+        context.window_manager.clipboard = json.dumps(spec, indent=2)
+        self.report({'INFO'}, "Copied JSON to clipboard")
+        return {'FINISHED'}
+
+
+class GEO_NODES_PT_panel(bpy.types.Panel):
     bl_label = "Import/Export Geo Nodes"
-    bl_idname = "AI_GEO_PT_panel"
+    bl_idname = "GEO_NODES_PT_panel"
     bl_space_type = 'NODE_EDITOR'
     bl_region_type = 'UI'
     bl_category = 'Import/Export'
@@ -270,22 +312,26 @@ class AI_GEO_PT_panel(bpy.types.Panel):
         scene = context.scene
 
         col = layout.column(align=True)
-        col.prop(scene, "ai_geo_source_mode", text="Source")
-        if scene.ai_geo_source_mode == 'TEXTBLOCK':
-            col.prop(scene, "ai_geo_textblock", text="Text")
-        col.operator("ai_geo.build_from_text", icon='NODETREE')
+        col.prop(scene, "geo_nodes_source_mode", text="Source")
+        if scene.geo_nodes_source_mode == 'TEXTBLOCK':
+            col.prop(scene, "geo_nodes_textblock", text="Text")
+        col.operator("geo_nodes.build_from_text", icon='NODETREE')
 
         layout.separator()
         box = layout.box()
         box.label(text="Export")
-        box.prop(scene, "ai_geo_export_path", text="Path")
-        box.operator("ai_geo.export_geo_nodes_json", icon='EXPORT')
+        box.prop(scene, "geo_nodes_export_path", text="Path")
+        box.prop(scene, "geo_nodes_export_selected_only", text="Selected Only")
+        row = box.row(align=True)
+        row.operator("geo_nodes.export_geo_nodes_json", icon='EXPORT')
+        row.operator("geo_nodes.copy_geo_nodes_json", text="", icon='COPYDOWN')
 
 
 CLASSES = (
-    AI_GEO_OT_build_from_text,
-    AI_GEO_OT_export_geo_nodes_json,
-    AI_GEO_PT_panel,
+    GEO_NODES_OT_build_from_text,
+    GEO_NODES_OT_export_geo_nodes_json,
+    GEO_NODES_OT_copy_geo_nodes_json,
+    GEO_NODES_PT_panel,
 )
 
 
@@ -293,7 +339,7 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.ai_geo_source_mode = bpy.props.EnumProperty(
+    bpy.types.Scene.geo_nodes_source_mode = bpy.props.EnumProperty(
         name="Geo Source",
         items=[
             ('CLIPBOARD', "Clipboard", "Read JSON from clipboard"),
@@ -302,21 +348,27 @@ def register():
         default='CLIPBOARD',
     )
 
-    bpy.types.Scene.ai_geo_textblock = bpy.props.PointerProperty(
+    bpy.types.Scene.geo_nodes_textblock = bpy.props.PointerProperty(
         name="Geo Text",
         type=bpy.types.Text,
     )
 
-    bpy.types.Scene.ai_geo_export_path = bpy.props.StringProperty(
+    bpy.types.Scene.geo_nodes_export_path = bpy.props.StringProperty(
         name="Export Path",
         subtype='DIR_PATH',
     )
 
+    bpy.types.Scene.geo_nodes_export_selected_only = bpy.props.BoolProperty(
+        name="Export Selected Only",
+        default=False,
+    )
+
 
 def unregister():
-    del bpy.types.Scene.ai_geo_export_path
-    del bpy.types.Scene.ai_geo_textblock
-    del bpy.types.Scene.ai_geo_source_mode
+    del bpy.types.Scene.geo_nodes_export_selected_only
+    del bpy.types.Scene.geo_nodes_export_path
+    del bpy.types.Scene.geo_nodes_textblock
+    del bpy.types.Scene.geo_nodes_source_mode
 
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
