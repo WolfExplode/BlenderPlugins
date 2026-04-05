@@ -1,6 +1,6 @@
 bl_info = {
-    "name": "Target, Please! (Smart Pivot)",
-    "author": "Ilyasse L",
+    "name": "Target, Please!",
+    "author": "Ilyasse Lm, WXP",
     "version": (1, 3, 1),
     "blender": (4, 2, 0),
     "location": "3D View",
@@ -13,6 +13,7 @@ bl_info = {
 }
 
 import bpy
+import json
 from mathutils import Vector
 from bpy_extras import view3d_utils
 from bpy.app.handlers import persistent
@@ -26,6 +27,10 @@ _TRANSFORM_OPS = {
     'RESIZE':    lambda: bpy.ops.transform.resize('INVOKE_DEFAULT'),
 }
 _SPY_KEYS = (('G', 'TRANSLATE'), ('R', 'ROTATE'), ('S', 'RESIZE'))
+_DZ_KEYS = (
+    "camera", "base_scale", "base_camera_world_pos", "base_lens",
+    "base_dist", "local_z_world", "lens_min", "lens_max",
+)
 
 
 def _active_smart_pivot_empty(context):
@@ -71,10 +76,48 @@ def _shared_scene_for_objects(*objs):
 
 
 def _linked_smart_pivot_orbit_object(empty):
-    """Orbit object bound to this pivot from the empty's stored property."""
-    name = empty.get("smart_pivot_orbit_object", "") or empty.get("smart_pivot_camera", "")
-    obj = bpy.data.objects.get(name)
-    return obj if (obj and obj.type in {'CAMERA', 'LIGHT'}) else None
+    objs = _linked_smart_pivot_orbit_objects(empty)
+    return objs[0] if objs else None
+
+
+def _linked_smart_pivot_orbit_names(empty):
+    if empty is None:
+        return []
+    names = []
+    raw = empty.get("smart_pivot_orbit_objects", "")
+    if isinstance(raw, str) and raw:
+        try:
+            names = [n for n in json.loads(raw) if isinstance(n, str)]
+        except Exception:
+            names = []
+    legacy = empty.get("smart_pivot_orbit_object", "") or empty.get("smart_pivot_camera", "")
+    if legacy and legacy not in names:
+        names.append(legacy)
+    return [n for n in names if n]
+
+
+def _linked_smart_pivot_orbit_objects(empty):
+    objs = []
+    for name in _linked_smart_pivot_orbit_names(empty):
+        obj = bpy.data.objects.get(name)
+        if obj and obj.type in {'CAMERA', 'LIGHT'}:
+            objs.append(obj)
+    return objs
+
+
+def _set_linked_smart_pivot_orbit_objects(empty, objs):
+    names, seen = [], set()
+    for obj in objs:
+        if obj and obj.type in {'CAMERA', 'LIGHT'} and obj.name not in seen:
+            seen.add(obj.name)
+            names.append(obj.name)
+    empty["smart_pivot_orbit_objects"] = json.dumps(names)
+    if names:
+        empty["smart_pivot_orbit_object"] = names[0]
+    elif "smart_pivot_orbit_object" in empty:
+        del empty["smart_pivot_orbit_object"]
+    if "smart_pivot_camera" in empty:
+        del empty["smart_pivot_camera"]
 
 
 def _linked_smart_pivot_empty_from_orbit_object(obj):
@@ -161,12 +204,7 @@ def _recreate_live_target_childof(scene, obj, empty):
 
 
 def _get_uniform_scale_factor(base_scale, current_scale):
-    ratios = []
-    for i in range(3):
-        b = abs(base_scale[i])
-        c = abs(current_scale[i])
-        if b > 1.0e-8:
-            ratios.append(c / b)
+    ratios = [abs(current_scale[i]) / abs(base_scale[i]) for i in range(3) if abs(base_scale[i]) > 1.0e-8]
     if not ratios:
         return 1.0
     return max(1.0e-4, sum(ratios) / len(ratios))
@@ -176,6 +214,90 @@ def _set_world_translation(obj, world_pos):
     mw = obj.matrix_world.copy()
     mw.translation = world_pos
     obj.matrix_world = mw
+
+
+def _has_scale_keyframes(obj):
+    ad = getattr(obj, "animation_data", None)
+    action = getattr(ad, "action", None) if ad else None
+    return bool(action and any(f.data_path == "scale" and f.keyframe_points for f in action.fcurves))
+
+
+def _capture_dolly_zoom_state(empty, cam):
+    cam_data = getattr(cam, "data", None)
+    if not cam_data or getattr(cam_data, "type", None) != 'PERSP':
+        return None
+    base_pos = cam.matrix_world.translation.copy()
+    empty_pos = empty.matrix_world.translation.copy()
+    offset = base_pos - empty_pos
+    base_dist = offset.length
+    if base_dist <= 1.0e-8:
+        return None
+    local_z = (cam.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))).normalized()
+    state = {
+        "camera_name": cam.name,
+        "empty_name": empty.name,
+        "base_empty_scale": empty.scale.copy(),
+        "base_camera_world_pos": base_pos,
+        "base_lens": float(cam_data.lens),
+        "base_dist": float(base_dist),
+        "local_z_world": local_z,
+        "lens_min": 1.0,
+        "lens_max": 5000.0,
+    }
+    stored = {
+        "camera": cam.name,
+        "base_scale": [float(v) for v in state["base_empty_scale"]],
+        "base_camera_world_pos": [float(v) for v in state["base_camera_world_pos"]],
+        "base_lens": float(state["base_lens"]),
+        "base_dist": float(state["base_dist"]),
+        "local_z_world": [float(v) for v in state["local_z_world"]],
+        "lens_min": float(state["lens_min"]),
+        "lens_max": float(state["lens_max"]),
+    }
+    for k, v in stored.items():
+        empty[f"smart_pivot_dz_{k}"] = v
+    return state
+
+
+def _dolly_zoom_state_from_empty(empty):
+    cam_name = empty.get("smart_pivot_dz_camera", "")
+    if not cam_name:
+        return None
+    try:
+        state = {
+            "camera_name": cam_name,
+            "empty_name": empty.name,
+            "base_empty_scale": Vector(empty["smart_pivot_dz_base_scale"]),
+            "base_camera_world_pos": Vector(empty["smart_pivot_dz_base_camera_world_pos"]),
+            "base_lens": float(empty["smart_pivot_dz_base_lens"]),
+            "base_dist": float(empty["smart_pivot_dz_base_dist"]),
+            "local_z_world": Vector(empty["smart_pivot_dz_local_z_world"]),
+            "lens_min": float(empty.get("smart_pivot_dz_lens_min", 1.0)),
+            "lens_max": float(empty.get("smart_pivot_dz_lens_max", 5000.0)),
+        }
+    except Exception:
+        return None
+    if state["base_dist"] <= 1.0e-8 or state["local_z_world"].length <= 1.0e-8:
+        return None
+    state["local_z_world"].normalize()
+    return state
+
+
+def _apply_dolly_zoom_state(state):
+    cam = bpy.data.objects.get(state["camera_name"])
+    dz_empty = bpy.data.objects.get(state["empty_name"])
+    if not cam or not dz_empty or cam.type != 'CAMERA' or not getattr(cam, "data", None):
+        return False
+    if getattr(cam.data, "type", None) != 'PERSP':
+        return False
+    s = _get_uniform_scale_factor(state["base_empty_scale"], dz_empty.scale)
+    new_dist = state["base_dist"] * s
+    delta = new_dist - state["base_dist"]
+    new_pos = state["base_camera_world_pos"] + (state["local_z_world"] * delta)
+    _set_world_translation(cam, new_pos)
+    new_lens = state["base_lens"] * s
+    cam.data.lens = min(state["lens_max"], max(state["lens_min"], new_lens))
+    return True
 
 
 class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
@@ -199,73 +321,60 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
     def invoke(self, context, event):
         active = getattr(context, "active_object", None)
         empty = _active_smart_pivot_empty(context)
-        orbit_obj = _linked_smart_pivot_orbit_object(empty) if empty else None
+        orbit_objs = _linked_smart_pivot_orbit_objects(empty) if empty else []
 
         # Also support starting G/R/S directly from the linked camera/light.
         self._active_is_orbit_object = bool(active and active.type in {'CAMERA', 'LIGHT'})
         if empty is None and self._active_is_orbit_object:
-            orbit_obj = active
-            empty = _linked_smart_pivot_empty_from_orbit_object(orbit_obj)
+            empty = _linked_smart_pivot_empty_from_orbit_object(active)
+            orbit_objs = [active]
 
-        scene = _shared_scene_for_objects(empty, orbit_obj) if orbit_obj else None
+        scene = _shared_scene_for_objects(empty, *orbit_objs) if orbit_objs else None
         self._ending = False
         self._empty_name = empty.name if empty else ""
-        self._orbit_object_name = orbit_obj.name if orbit_obj else ""
-        self._restore_childof_after_translate = False
-        self._had_childof_before_translate = False
+        self._orbit_object_names = [obj.name for obj in orbit_objs]
+        self._restore_childof_after_translate = set()
+        self._had_childof_before_translate = {}
         self._translate_was_cancelled = False
         self._resize_was_cancelled = False
         self._dolly_zoom = None
 
         # Spy only for active smart-pivot empties with a valid linked orbit object.
         # Otherwise stay fully transparent and let default G/R/S keymaps run.
-        if empty is None or orbit_obj is None or scene is None:
+        if empty is None or not orbit_objs or scene is None:
             return {'PASS_THROUGH'}
 
         # Apply expected pre-transform state.
         # Only Translate (Grab) should force-remove Child Of.
         if self.transform_type == 'TRANSLATE':
-            had_childof = _has_live_target_childof(orbit_obj, empty)
-            self._had_childof_before_translate = had_childof
-            if had_childof:
-                _apply_live_target_childof(scene, orbit_obj, empty)
+            self._had_childof_before_translate = {obj.name: _has_live_target_childof(obj, empty) for obj in orbit_objs}
+            for obj in orbit_objs:
+                if self._had_childof_before_translate.get(obj.name):
+                    _apply_live_target_childof(scene, obj, empty)
             # If user grabbed camera/light directly, restore Child Of after grab ends.
-            self._restore_childof_after_translate = self._active_is_orbit_object and had_childof
+            if self._active_is_orbit_object and active and self._had_childof_before_translate.get(active.name):
+                self._restore_childof_after_translate = {active.name}
         else:
-            if not _has_live_target_childof(orbit_obj, empty):
-                _recreate_live_target_childof(scene, orbit_obj, empty)
+            for obj in orbit_objs:
+                if not _has_live_target_childof(obj, empty):
+                    _recreate_live_target_childof(scene, obj, empty)
 
         # Dolly zoom session: scaling smart pivot empty drives camera lens + local Z dolly.
-        if self.transform_type == 'RESIZE' and empty == active and orbit_obj.type == 'CAMERA':
-            cam_data = getattr(orbit_obj, "data", None)
-            if cam_data and getattr(cam_data, "type", None) == 'PERSP':
-                base_pos = orbit_obj.matrix_world.translation.copy()
-                empty_pos = empty.matrix_world.translation.copy()
-                offset = base_pos - empty_pos
-                base_dist = offset.length
-                if base_dist > 1.0e-8:
-                    local_z = (orbit_obj.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0))).normalized()
-                    self._dolly_zoom = {
-                        "camera_name": orbit_obj.name,
-                        "empty_name": empty.name,
-                        "base_empty_scale": empty.scale.copy(),
-                        "base_camera_world_pos": base_pos,
-                        "base_lens": float(cam_data.lens),
-                        "base_dist": float(base_dist),
-                        "local_z_world": local_z,
-                        "lens_min": 1.0,
-                        "lens_max": 5000.0,
-                    }
+        cam = next((obj for obj in orbit_objs if obj.type == 'CAMERA'), None)
+        if self.transform_type == 'RESIZE' and empty == active and cam:
+            self._dolly_zoom = _capture_dolly_zoom_state(empty, cam)
 
         result = self._invoke_native_transform()
         if 'RUNNING_MODAL' not in result and 'FINISHED' not in result:
             # Immediate cancel/failure: restore original Child Of state for direct camera/light grab.
             if self.transform_type == 'TRANSLATE':
-                if self._had_childof_before_translate:
-                    if not _has_live_target_childof(orbit_obj, empty):
-                        _recreate_live_target_childof(scene, orbit_obj, empty)
-                elif _has_live_target_childof(orbit_obj, empty):
-                    _apply_live_target_childof(scene, orbit_obj, empty)
+                for obj in orbit_objs:
+                    had = self._had_childof_before_translate.get(obj.name, False)
+                    has_now = _has_live_target_childof(obj, empty)
+                    if had and not has_now:
+                        _recreate_live_target_childof(scene, obj, empty)
+                    elif not had and has_now:
+                        _apply_live_target_childof(scene, obj, empty)
             return {'CANCELLED'}
 
         context.window_manager.modal_handler_add(self)
@@ -274,51 +383,40 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
     def modal(self, context, event):
         if self._ending:
             empty = bpy.data.objects.get(self._empty_name)
-            orbit_obj = bpy.data.objects.get(self._orbit_object_name)
-            scene = _shared_scene_for_objects(empty, orbit_obj) if empty and orbit_obj else None
+            orbit_objs = [bpy.data.objects.get(n) for n in self._orbit_object_names]
+            orbit_objs = [o for o in orbit_objs if o]
+            scene = _shared_scene_for_objects(empty, *orbit_objs) if empty and orbit_objs else None
             if (
                 self.transform_type == 'TRANSLATE'
-                and empty and orbit_obj and scene
+                and empty and orbit_objs and scene
             ):
-                if self._translate_was_cancelled and self._had_childof_before_translate:
-                    if not _has_live_target_childof(orbit_obj, empty):
-                        _recreate_live_target_childof(scene, orbit_obj, empty)
-                elif not self._restore_childof_after_translate and _has_live_target_childof(orbit_obj, empty):
-                    _apply_live_target_childof(scene, orbit_obj, empty)
+                if self._translate_was_cancelled:
+                    for obj in orbit_objs:
+                        if self._had_childof_before_translate.get(obj.name) and not _has_live_target_childof(obj, empty):
+                            _recreate_live_target_childof(scene, obj, empty)
+                else:
+                    for obj in orbit_objs:
+                        if obj.name not in self._restore_childof_after_translate and _has_live_target_childof(obj, empty):
+                            _apply_live_target_childof(scene, obj, empty)
             if self.transform_type == 'RESIZE' and self._dolly_zoom:
                 cam = bpy.data.objects.get(self._dolly_zoom["camera_name"])
-                dz_empty = bpy.data.objects.get(self._dolly_zoom["empty_name"])
-                if cam and dz_empty and cam.type == 'CAMERA' and getattr(cam, "data", None):
+                if cam and cam.type == 'CAMERA' and getattr(cam, "data", None):
                     if self._resize_was_cancelled:
                         _set_world_translation(cam, self._dolly_zoom["base_camera_world_pos"])
                         cam.data.lens = self._dolly_zoom["base_lens"]
                     else:
                         # Snap once on finish to the final scale-driven dolly-zoom result.
-                        s = _get_uniform_scale_factor(self._dolly_zoom["base_empty_scale"], dz_empty.scale)
-                        new_dist = self._dolly_zoom["base_dist"] * s
-                        delta = new_dist - self._dolly_zoom["base_dist"]
-                        new_pos = self._dolly_zoom["base_camera_world_pos"] + (self._dolly_zoom["local_z_world"] * delta)
-                        _set_world_translation(cam, new_pos)
-                        new_lens = self._dolly_zoom["base_lens"] * s
-                        cam.data.lens = min(self._dolly_zoom["lens_max"], max(self._dolly_zoom["lens_min"], new_lens))
+                        _apply_dolly_zoom_state(self._dolly_zoom)
             return {'FINISHED'}
 
         if self.transform_type == 'RESIZE' and self._dolly_zoom:
-            cam = bpy.data.objects.get(self._dolly_zoom["camera_name"])
-            dz_empty = bpy.data.objects.get(self._dolly_zoom["empty_name"])
-            if cam and dz_empty and cam.type == 'CAMERA' and getattr(cam, "data", None):
-                s = _get_uniform_scale_factor(self._dolly_zoom["base_empty_scale"], dz_empty.scale)
-                new_dist = self._dolly_zoom["base_dist"] * s
-                delta = new_dist - self._dolly_zoom["base_dist"]
-                new_pos = self._dolly_zoom["base_camera_world_pos"] + (self._dolly_zoom["local_z_world"] * delta)
-                _set_world_translation(cam, new_pos)
-                new_lens = self._dolly_zoom["base_lens"] * s
-                cam.data.lens = min(self._dolly_zoom["lens_max"], max(self._dolly_zoom["lens_min"], new_lens))
+            _apply_dolly_zoom_state(self._dolly_zoom)
 
         # Detect both confirm and cancel keys while allowing transform to consume them.
         if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE', 'ESC'} and event.value in {'PRESS', 'CLICK'}:
-            self._translate_was_cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
-            self._resize_was_cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
+            cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
+            self._translate_was_cancelled = cancelled
+            self._resize_was_cancelled = cancelled
             self._ending = True
             return {'PASS_THROUGH'}
 
@@ -342,6 +440,23 @@ def _cleanup_orphan_live_target_constraints(_scene, _depsgraph):
                     obj.constraints.remove(c)
                 except Exception:
                     pass
+
+
+@persistent
+def _sync_keyframed_dolly_zoom(_scene, _depsgraph=None):
+    for empty in bpy.data.objects:
+        if empty.type != 'EMPTY' or not empty.get("is_smart_pivot_target"):
+            continue
+        if not _has_scale_keyframes(empty):
+            continue
+        cam = next((obj for obj in _linked_smart_pivot_orbit_objects(empty) if obj.type == 'CAMERA'), None)
+        if not cam or cam.type != 'CAMERA':
+            continue
+        state = _dolly_zoom_state_from_empty(empty)
+        if state is None or state["camera_name"] != cam.name:
+            state = _capture_dolly_zoom_state(empty, cam)
+        if state:
+            _apply_dolly_zoom_state(state)
 
 
 def unregister_keymaps():
@@ -410,19 +525,18 @@ def purge_orphan_live_target_empties_for_base_name(base_name):
 
 def _cleanup_live_target_object(obj):
     for c in list(obj.constraints):
-        if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo'):
-            obj.constraints.remove(c)
-        elif c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf'):
+        if c.type in {'TRACK_TO', 'CHILD_OF'} and c.name.startswith(('LiveTarget_TrackTo', 'LiveTarget_ChildOf')):
             obj.constraints.remove(c)
 
 
 def _cleanup_live_target_empty(empty):
-    if empty is not None and empty.get("is_smart_pivot_target"):
-        del empty["is_smart_pivot_target"]
-    if empty is not None and "smart_pivot_orbit_object" in empty:
-        del empty["smart_pivot_orbit_object"]
-    if empty is not None and "smart_pivot_camera" in empty:
-        del empty["smart_pivot_camera"]
+    if empty is None:
+        return
+    keys = ["is_smart_pivot_target", "smart_pivot_orbit_object", "smart_pivot_orbit_objects", "smart_pivot_camera"]
+    keys.extend(f"smart_pivot_dz_{k}" for k in _DZ_KEYS)
+    for key in keys:
+        if key in empty:
+            del empty[key]
 
 
 # ---------------------------------------------------------------------
@@ -588,13 +702,13 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
 
         # Apply constraints
         self.constrained_objects = []
+        orbit_objs = []
         for obj in context.selected_objects:
             if obj == self.empty:
                 continue
 
-            if self.use_orbit and obj.type in {'CAMERA', 'LIGHT'} and "smart_pivot_orbit_object" not in self.empty:
-                self.empty["smart_pivot_orbit_object"] = obj.name
-                # LiveTarget_ChildOf is added only by the transform spy during rotate.
+            if self.use_orbit and obj.type in {'CAMERA', 'LIGHT'}:
+                orbit_objs.append(obj)
 
             constraint = obj.constraints.new(type='TRACK_TO')
             constraint.name = "LiveTarget_TrackTo"
@@ -603,6 +717,9 @@ class OBJECT_OT_live_set_target(bpy.types.Operator):
             constraint.up_axis = self.up_axis
             constraint.use_target_z = self.target_z
             self.constrained_objects.append((obj, constraint))
+        if self.use_orbit:
+            _set_linked_smart_pivot_orbit_objects(self.empty, orbit_objs)
+            # LiveTarget_ChildOf is added only by the transform spy during rotate.
 
         context.view_layer.update()
 
@@ -677,12 +794,21 @@ def register():
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     register_keymaps()
-    if _cleanup_orphan_live_target_constraints not in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.append(_cleanup_orphan_live_target_constraints)
+    handlers = (
+        (bpy.app.handlers.depsgraph_update_post, _cleanup_orphan_live_target_constraints),
+        (bpy.app.handlers.frame_change_post, _sync_keyframed_dolly_zoom),
+    )
+    for hlist, fn in handlers:
+        if fn not in hlist:
+            hlist.append(fn)
 
 def unregister():
-    if _cleanup_orphan_live_target_constraints in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.remove(_cleanup_orphan_live_target_constraints)
+    for hlist, fn in (
+        (bpy.app.handlers.frame_change_post, _sync_keyframed_dolly_zoom),
+        (bpy.app.handlers.depsgraph_update_post, _cleanup_orphan_live_target_constraints),
+    ):
+        if fn in hlist:
+            hlist.remove(fn)
     unregister_keymaps()
     for cls in reversed(_CLASSES):
         bpy.utils.unregister_class(cls)
