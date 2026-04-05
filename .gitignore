@@ -1,1 +1,3 @@
 /Blender Documentation/
+__pycache__/
+*.py[cod]
