@@ -1,0 +1,1873 @@
+{
+  "tree_name": "\u0394Heart rate",
+  "nodes": [
+    {
+      "id": "Position.002",
+      "type": "GeometryNodeInputPosition",
+      "name": "Position.002",
+      "location": [
+        -1773.8929443359375,
+        -1964.8603515625
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Sample Index.002",
+      "type": "GeometryNodeSampleIndex",
+      "name": "Sample Index.002",
+      "location": [
+        -1615.3236083984375,
+        -1845.682861328125
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT_VECTOR",
+        "domain": "POINT",
+        "clamp": false
+      }
+    },
+    {
+      "id": "Sample Index.003",
+      "type": "GeometryNodeSampleIndex",
+      "name": "Sample Index.003",
+      "location": [
+        -1615.670654296875,
+        -1637.1773681640625
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT_VECTOR",
+        "domain": "POINT",
+        "clamp": false
+      }
+    },
+    {
+      "id": "Position.003",
+      "type": "GeometryNodeInputPosition",
+      "name": "Position.003",
+      "location": [
+        -1772.945556640625,
+        -1759.377685546875
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Separate XYZ.004",
+      "type": "ShaderNodeSeparateXYZ",
+      "name": "Separate XYZ.004",
+      "location": [
+        33.216552734375,
+        -589.96533203125
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Separate XYZ.005",
+      "type": "ShaderNodeSeparateXYZ",
+      "name": "Separate XYZ.005",
+      "location": [
+        31.2822265625,
+        -433.8955078125
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Math.003",
+      "type": "ShaderNodeMath",
+      "name": "Math.003",
+      "location": [
+        357.53033447265625,
+        -418.0892333984375
+      ],
+      "label": "\u0394Time (s)",
+      "props": {
+        "status": false,
+        "operation": "SUBTRACT",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.006",
+      "type": "ShaderNodeMath",
+      "name": "Math.006",
+      "location": [
+        576.3636474609375,
+        -213.54150390625
+      ],
+      "label": "bpm/s",
+      "props": {
+        "status": false,
+        "operation": "DIVIDE",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Separate XYZ.006",
+      "type": "ShaderNodeSeparateXYZ",
+      "name": "Separate XYZ.006",
+      "location": [
+        30.3570556640625,
+        -264.9373779296875
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Separate XYZ.007",
+      "type": "ShaderNodeSeparateXYZ",
+      "name": "Separate XYZ.007",
+      "location": [
+        30.048095703125,
+        -113.3079833984375
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Math.007",
+      "type": "ShaderNodeMath",
+      "name": "Math.007",
+      "location": [
+        358.5267333984375,
+        -95.0169677734375
+      ],
+      "label": "\u0394bpm",
+      "props": {
+        "status": false,
+        "operation": "SUBTRACT",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.008",
+      "type": "ShaderNodeMath",
+      "name": "Math.008",
+      "location": [
+        177.7376708984375,
+        -36.3355712890625
+      ],
+      "label": "bpm2",
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 100.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.009",
+      "type": "ShaderNodeMath",
+      "name": "Math.009",
+      "location": [
+        183.2828369140625,
+        -360.4652099609375
+      ],
+      "label": "t2 (s)",
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 60.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Mix.001",
+      "type": "ShaderNodeMix",
+      "name": "Mix.001",
+      "location": [
+        -220.10574340820312,
+        -1429.9248046875
+      ],
+      "props": {
+        "status": false,
+        "data_type": "VECTOR",
+        "factor_mode": "UNIFORM",
+        "blend_type": "DIFFERENCE",
+        "clamp_factor": true,
+        "clamp_result": false
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": 0.5
+        },
+        {
+          "socket": 1,
+          "value": [
+            0.5,
+            0.5,
+            0.5
+          ]
+        },
+        {
+          "socket": 2,
+          "value": 0.0
+        },
+        {
+          "socket": 3,
+          "value": 0.0
+        },
+        {
+          "socket": 6,
+          "value": [
+            0.5,
+            0.5,
+            0.5,
+            1.0
+          ]
+        },
+        {
+          "socket": 7,
+          "value": [
+            0.5,
+            0.5,
+            0.5,
+            1.0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Frame.001",
+      "type": "NodeFrame",
+      "name": "Frame.001",
+      "location": [
+        -1341.199951171875,
+        -1336.800048828125
+      ],
+      "label": "slope (rate of heart rate increase)",
+      "props": {
+        "status": false,
+        "shrink": true,
+        "label_size": 20
+      }
+    },
+    {
+      "id": "Repeat Input",
+      "type": "GeometryNodeRepeatInput",
+      "name": "Repeat Input",
+      "location": [
+        -2298.42578125,
+        -1965.1995849609375
+      ],
+      "props": {
+        "status": false
+      },
+      "inputs": [
+        {
+          "socket": 2,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "Repeat Output",
+      "type": "GeometryNodeRepeatOutput",
+      "name": "Repeat Output",
+      "location": [
+        1454.6302490234375,
+        -1821.7779541015625
+      ],
+      "props": {
+        "status": false,
+        "active_index": 1,
+        "inspection_index": 0
+      }
+    },
+    {
+      "id": "Domain Size",
+      "type": "GeometryNodeAttributeDomainSize",
+      "name": "Domain Size",
+      "location": [
+        -2458.698486328125,
+        -1985.51171875
+      ],
+      "props": {
+        "status": false,
+        "component": "MESH"
+      }
+    },
+    {
+      "id": "Group Input.003",
+      "type": "NodeGroupInput",
+      "name": "Group Input.003",
+      "location": [
+        -2609.202880859375,
+        -2034.963623046875
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Math.010",
+      "type": "ShaderNodeMath",
+      "name": "Math.010",
+      "location": [
+        -1969.58984375,
+        -1752.848388671875
+      ],
+      "props": {
+        "status": false,
+        "operation": "ADD",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 1.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Join Geometry.002",
+      "type": "GeometryNodeJoinGeometry",
+      "name": "Join Geometry.002",
+      "location": [
+        1047.9932861328125,
+        -1806.7874755859375
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Group Input.005",
+      "type": "NodeGroupInput",
+      "name": "Group Input.005",
+      "location": [
+        -1785.7249755859375,
+        -1843.825927734375
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Join Geometry.003",
+      "type": "GeometryNodeJoinGeometry",
+      "name": "Join Geometry.003",
+      "location": [
+        1642.5863037109375,
+        -1798.1396484375
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Group Input.004",
+      "type": "NodeGroupInput",
+      "name": "Group Input.004",
+      "location": [
+        1457.330810546875,
+        -1741.0189208984375
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Math.012",
+      "type": "ShaderNodeMath",
+      "name": "Math.012",
+      "location": [
+        -2120.64013671875,
+        -1827.186767578125
+      ],
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 2.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.013",
+      "type": "ShaderNodeMath",
+      "name": "Math.013",
+      "location": [
+        -2120.64013671875,
+        -1989.7398681640625
+      ],
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 2.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "String",
+      "type": "FunctionNodeInputString",
+      "name": "String",
+      "location": [
+        -16.09909439086914,
+        -1270.849609375
+      ],
+      "props": {
+        "status": false,
+        "string": " bpm/s"
+      }
+    },
+    {
+      "id": "Math.014",
+      "type": "ShaderNodeMath",
+      "name": "Math.014",
+      "location": [
+        183.4326171875,
+        -517.6798095703125
+      ],
+      "label": "t1 (s)",
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 60.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.015",
+      "type": "ShaderNodeMath",
+      "name": "Math.015",
+      "location": [
+        181.5543212890625,
+        -191.035400390625
+      ],
+      "label": "bpm1",
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 100.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "String.004",
+      "type": "FunctionNodeInputString",
+      "name": "String.004",
+      "location": [
+        -157.1556854248047,
+        -2516.98828125
+      ],
+      "props": {
+        "status": false,
+        "string": " BPM"
+      }
+    },
+    {
+      "id": "Group Output",
+      "type": "NodeGroupOutput",
+      "name": "Group Output",
+      "location": [
+        1793.0355224609375,
+        -1799.050048828125
+      ],
+      "props": {
+        "status": false,
+        "is_active_output": true
+      }
+    },
+    {
+      "id": "Group",
+      "type": "GeometryNodeGroup",
+      "name": "Group",
+      "location": [
+        -50.52590560913086,
+        -1774.4146728515625
+      ],
+      "label": "Text t1",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      }
+    },
+    {
+      "id": "Group.001",
+      "type": "GeometryNodeGroup",
+      "name": "Group.001",
+      "location": [
+        -3.352295398712158,
+        -2062.55517578125
+      ],
+      "label": "Text t2",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      }
+    },
+    {
+      "id": "String.006",
+      "type": "FunctionNodeInputString",
+      "name": "String.006",
+      "location": [
+        -214.39480590820312,
+        -2068.527099609375
+      ],
+      "props": {
+        "status": false,
+        "string": " s"
+      }
+    },
+    {
+      "id": "Group.002",
+      "type": "GeometryNodeGroup",
+      "name": "Group.002",
+      "location": [
+        8.540948867797852,
+        -2306.27978515625
+      ],
+      "label": "Text BPM1",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      }
+    },
+    {
+      "id": "Group.003",
+      "type": "GeometryNodeGroup",
+      "name": "Group.003",
+      "location": [
+        0.596020519733429,
+        -2583.894775390625
+      ],
+      "label": "Text BPM2",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      }
+    },
+    {
+      "id": "Group.004",
+      "type": "GeometryNodeGroup",
+      "name": "Group.004",
+      "location": [
+        162.0245361328125,
+        -1023.8192138671875
+      ],
+      "label": "Text bpm/s",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      },
+      "inputs": [
+        {
+          "socket": 3,
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": "String.001",
+      "type": "FunctionNodeInputString",
+      "name": "String.001",
+      "location": [
+        -19.425302505493164,
+        -1456.8446044921875
+      ],
+      "props": {
+        "status": false,
+        "string": "\u0394T(s)"
+      }
+    },
+    {
+      "id": "Group.005",
+      "type": "GeometryNodeGroup",
+      "name": "Group.005",
+      "location": [
+        159.25033569335938,
+        -1317.50146484375
+      ],
+      "label": "Text \u0394Time (s)",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      },
+      "inputs": [
+        {
+          "socket": 3,
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "String.002",
+      "type": "FunctionNodeInputString",
+      "name": "String.002",
+      "location": [
+        -16.023014068603516,
+        -1651.0679931640625
+      ],
+      "props": {
+        "status": false,
+        "string": "\u0394BPM"
+      }
+    },
+    {
+      "id": "Group.006",
+      "type": "GeometryNodeGroup",
+      "name": "Group.006",
+      "location": [
+        144.63470458984375,
+        -1600.567626953125
+      ],
+      "label": "Text \u0394bpm",
+      "props": {
+        "status": false,
+        "node_tree": "Value to Text"
+      },
+      "inputs": [
+        {
+          "socket": 3,
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "Value.001",
+      "type": "ShaderNodeValue",
+      "name": "Value.001",
+      "location": [
+        -222.5488739013672,
+        -2163.113037109375
+      ],
+      "label": "Decimals",
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Reroute",
+      "type": "NodeReroute",
+      "name": "Reroute",
+      "location": [
+        -120.63261413574219,
+        -1918.8128662109375
+      ],
+      "props": {
+        "status": false,
+        "socket_idname": "NodeSocketGeometry"
+      }
+    },
+    {
+      "id": "Value to String.002",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.002",
+      "location": [
+        258.497314453125,
+        -217.9483184814453
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      }
+    },
+    {
+      "id": "Join Strings.001",
+      "type": "GeometryNodeStringJoin",
+      "name": "Join Strings.001",
+      "location": [
+        594.018310546875,
+        -390.7658386230469
+      ],
+      "props": {
+        "status": false
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "Value to String.003",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.003",
+      "location": [
+        257.086669921875,
+        -402.468017578125
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      }
+    },
+    {
+      "id": "String.003",
+      "type": "FunctionNodeInputString",
+      "name": "String.003",
+      "location": [
+        256.66375732421875,
+        -345.7970886230469
+      ],
+      "props": {
+        "status": false,
+        "string": "bpm@"
+      }
+    },
+    {
+      "id": "String.005",
+      "type": "FunctionNodeInputString",
+      "name": "String.005",
+      "location": [
+        258.85418701171875,
+        -526.0046997070312
+      ],
+      "props": {
+        "status": false,
+        "string": "s to "
+      }
+    },
+    {
+      "id": "String.007",
+      "type": "FunctionNodeInputString",
+      "name": "String.007",
+      "location": [
+        259.99957275390625,
+        -703.3373413085938
+      ],
+      "props": {
+        "status": false,
+        "string": "bpm@"
+      }
+    },
+    {
+      "id": "Value to String.004",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.004",
+      "location": [
+        259.69647216796875,
+        -574.9389038085938
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      }
+    },
+    {
+      "id": "Value to String.005",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.005",
+      "location": [
+        261.0013427734375,
+        -759.1689453125
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      }
+    },
+    {
+      "id": "Join Strings.002",
+      "type": "GeometryNodeStringJoin",
+      "name": "Join Strings.002",
+      "location": [
+        1039.907470703125,
+        -842.460205078125
+      ],
+      "props": {
+        "status": false
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": "String.008",
+      "type": "FunctionNodeInputString",
+      "name": "String.008",
+      "location": [
+        787.0782470703125,
+        -669.7020263671875
+      ],
+      "props": {
+        "status": false,
+        "string": "\u0394"
+      }
+    },
+    {
+      "id": "Value to String.006",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.006",
+      "location": [
+        788.365234375,
+        -724.5870971679688
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      }
+    },
+    {
+      "id": "String.009",
+      "type": "FunctionNodeInputString",
+      "name": "String.009",
+      "location": [
+        784.5773315429688,
+        -851.1561889648438
+      ],
+      "props": {
+        "status": false,
+        "string": "bpm in "
+      }
+    },
+    {
+      "id": "Value to String.007",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.007",
+      "location": [
+        785.0157470703125,
+        -906.8155517578125
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      }
+    },
+    {
+      "id": "String.010",
+      "type": "FunctionNodeInputString",
+      "name": "String.010",
+      "location": [
+        783.5445556640625,
+        -1031.0927734375
+      ],
+      "props": {
+        "status": false,
+        "string": "s, "
+      }
+    },
+    {
+      "id": "Value to String.008",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.008",
+      "location": [
+        783.8809814453125,
+        -1087.368408203125
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "Group Input.006",
+      "type": "NodeGroupInput",
+      "name": "Group Input.006",
+      "location": [
+        1043.8818359375,
+        -779.9163818359375
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Value.002",
+      "type": "ShaderNodeValue",
+      "name": "Value.002",
+      "location": [
+        30.093505859375,
+        -578.317626953125
+      ],
+      "label": "Decimals",
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Store Named Attribute.001",
+      "type": "GeometryNodeStoreNamedAttribute",
+      "name": "Store Named Attribute.001",
+      "location": [
+        1212.413330078125,
+        -749.825927734375
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT",
+        "domain": "POINT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": true
+        },
+        {
+          "socket": 3,
+          "value": 0.0
+        }
+      ]
+    },
+    {
+      "id": "String.012",
+      "type": "FunctionNodeInputString",
+      "name": "String.012",
+      "location": [
+        258.0111083984375,
+        -885.7182006835938
+      ],
+      "props": {
+        "status": false,
+        "string": "s. "
+      }
+    },
+    {
+      "id": "Frame",
+      "type": "NodeFrame",
+      "name": "Frame",
+      "location": [
+        -1127.5999755859375,
+        404.79998779296875
+      ],
+      "label": "Omegalul",
+      "props": {
+        "status": false,
+        "shrink": true,
+        "label_size": 20
+      }
+    },
+    {
+      "id": "Math",
+      "type": "ShaderNodeMath",
+      "name": "Math",
+      "location": [
+        1275.3502197265625,
+        -1865.498779296875
+      ],
+      "props": {
+        "status": false,
+        "operation": "ADD",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 1.0
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Value to String.009",
+      "type": "FunctionNodeValueToString",
+      "name": "Value to String.009",
+      "location": [
+        258.43560791015625,
+        -36.39898681640625
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "String.013",
+      "type": "FunctionNodeInputString",
+      "name": "String.013",
+      "location": [
+        256.252685546875,
+        -162.44473266601562
+      ],
+      "props": {
+        "status": false,
+        "string": ". "
+      }
+    },
+    {
+      "id": "Math.011",
+      "type": "ShaderNodeMath",
+      "name": "Math.011",
+      "location": [
+        -248.29296875,
+        -1042.845458984375
+      ],
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": 0.03999999910593033
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.016",
+      "type": "ShaderNodeMath",
+      "name": "Math.016",
+      "location": [
+        -248.036865234375,
+        -1218.8297119140625
+      ],
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": 0.019999999552965164
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Math.017",
+      "type": "ShaderNodeMath",
+      "name": "Math.017",
+      "location": [
+        -473.68682861328125,
+        -2245.729736328125
+      ],
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": 0.009999999776482582
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Reroute.001",
+      "type": "NodeReroute",
+      "name": "Reroute.001",
+      "location": [
+        -214.66067504882812,
+        -2286.755126953125
+      ],
+      "props": {
+        "status": false,
+        "socket_idname": "NodeSocketFloat"
+      }
+    },
+    {
+      "id": "Group Input.007",
+      "type": "NodeGroupInput",
+      "name": "Group Input.007",
+      "location": [
+        -960.1934814453125,
+        -2252.533203125
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Reroute.002",
+      "type": "NodeReroute",
+      "name": "Reroute.002",
+      "location": [
+        -785.9398193359375,
+        -2275.1962890625
+      ],
+      "props": {
+        "status": false,
+        "socket_idname": "NodeSocketFloat"
+      }
+    }
+  ],
+  "links": [
+    {
+      "from_node": "Position.002",
+      "from_socket": 0,
+      "to_node": "Sample Index.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Position.003",
+      "from_socket": 0,
+      "to_node": "Sample Index.003",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Sample Index.002",
+      "from_socket": 0,
+      "to_node": "Separate XYZ.004",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Sample Index.003",
+      "from_socket": 0,
+      "to_node": "Separate XYZ.005",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.009",
+      "from_socket": 0,
+      "to_node": "Math.003",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.014",
+      "from_socket": 0,
+      "to_node": "Math.003",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.008",
+      "from_socket": 0,
+      "to_node": "Math.007",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.015",
+      "from_socket": 0,
+      "to_node": "Math.007",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Sample Index.003",
+      "from_socket": 0,
+      "to_node": "Separate XYZ.007",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Sample Index.002",
+      "from_socket": 0,
+      "to_node": "Separate XYZ.006",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.007",
+      "from_socket": 0,
+      "to_node": "Math.006",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Sample Index.003",
+      "from_socket": 0,
+      "to_node": "Mix.001",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Sample Index.002",
+      "from_socket": 0,
+      "to_node": "Mix.001",
+      "to_socket": 5
+    },
+    {
+      "from_node": "Math.003",
+      "from_socket": 0,
+      "to_node": "Math.006",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Group Input.003",
+      "from_socket": 0,
+      "to_node": "Domain Size",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Group Input.005",
+      "from_socket": 0,
+      "to_node": "Sample Index.003",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Group Input.005",
+      "from_socket": 0,
+      "to_node": "Sample Index.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Join Geometry.002",
+      "from_socket": 0,
+      "to_node": "Repeat Output",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Reroute",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Repeat Output",
+      "from_socket": 0,
+      "to_node": "Join Geometry.003",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Group Input.004",
+      "from_socket": 0,
+      "to_node": "Join Geometry.003",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.012",
+      "from_socket": 0,
+      "to_node": "Math.010",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Repeat Input",
+      "from_socket": 0,
+      "to_node": "Math.012",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Repeat Input",
+      "from_socket": 0,
+      "to_node": "Math.013",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.010",
+      "from_socket": 0,
+      "to_node": "Sample Index.003",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Math.013",
+      "from_socket": 0,
+      "to_node": "Sample Index.002",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Group",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Separate XYZ.005",
+      "from_socket": 0,
+      "to_node": "Math.009",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Separate XYZ.004",
+      "from_socket": 0,
+      "to_node": "Math.014",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Separate XYZ.007",
+      "from_socket": 1,
+      "to_node": "Math.008",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Separate XYZ.006",
+      "from_socket": 1,
+      "to_node": "Math.015",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Domain Size",
+      "from_socket": 1,
+      "to_node": "Repeat Input",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Join Geometry.003",
+      "from_socket": 0,
+      "to_node": "Group Output",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Reroute.001",
+      "from_socket": 0,
+      "to_node": "Group",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Sample Index.002",
+      "from_socket": 0,
+      "to_node": "Group",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.014",
+      "from_socket": 0,
+      "to_node": "Group",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Reroute.001",
+      "from_socket": 0,
+      "to_node": "Group.001",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Sample Index.003",
+      "from_socket": 0,
+      "to_node": "Group.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.009",
+      "from_socket": 0,
+      "to_node": "Group.001",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Group.001",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.006",
+      "from_socket": 0,
+      "to_node": "Group",
+      "to_socket": 4
+    },
+    {
+      "from_node": "String.006",
+      "from_socket": 0,
+      "to_node": "Group.001",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Group.002",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Sample Index.002",
+      "from_socket": 0,
+      "to_node": "Group.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String.004",
+      "from_socket": 0,
+      "to_node": "Group.002",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Math.015",
+      "from_socket": 0,
+      "to_node": "Group.002",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Reroute.001",
+      "from_socket": 0,
+      "to_node": "Group.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Group.003",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.004",
+      "from_socket": 0,
+      "to_node": "Group.003",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Reroute.001",
+      "from_socket": 0,
+      "to_node": "Group.003",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.008",
+      "from_socket": 0,
+      "to_node": "Group.003",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Sample Index.003",
+      "from_socket": 0,
+      "to_node": "Group.003",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Mix.001",
+      "from_socket": 1,
+      "to_node": "Group.004",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String",
+      "from_socket": 0,
+      "to_node": "Group.004",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Group.004",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.001",
+      "from_socket": 0,
+      "to_node": "Group.005",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Mix.001",
+      "from_socket": 1,
+      "to_node": "Group.005",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.006",
+      "from_socket": 0,
+      "to_node": "Group.004",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Math.003",
+      "from_socket": 0,
+      "to_node": "Group.005",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Group.005",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.002",
+      "from_socket": 0,
+      "to_node": "Group.006",
+      "to_socket": 4
+    },
+    {
+      "from_node": "Math.007",
+      "from_socket": 0,
+      "to_node": "Group.006",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Group.006",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Mix.001",
+      "from_socket": 1,
+      "to_node": "Group.006",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value.001",
+      "from_socket": 0,
+      "to_node": "Group",
+      "to_socket": 3
+    },
+    {
+      "from_node": "Value.001",
+      "from_socket": 0,
+      "to_node": "Group.001",
+      "to_socket": 3
+    },
+    {
+      "from_node": "Value.001",
+      "from_socket": 0,
+      "to_node": "Group.002",
+      "to_socket": 3
+    },
+    {
+      "from_node": "Value.001",
+      "from_socket": 0,
+      "to_node": "Group.003",
+      "to_socket": 3
+    },
+    {
+      "from_node": "Repeat Input",
+      "from_socket": 1,
+      "to_node": "Reroute",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Value to String.002",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.015",
+      "from_socket": 0,
+      "to_node": "Value to String.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.003",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value to String.003",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.014",
+      "from_socket": 0,
+      "to_node": "Value to String.003",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.008",
+      "from_socket": 0,
+      "to_node": "Value to String.004",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.005",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value to String.004",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String.007",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value to String.005",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String.008",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.007",
+      "from_socket": 0,
+      "to_node": "Value to String.006",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Value to String.006",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String.009",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value to String.007",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String.010",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.003",
+      "from_socket": 0,
+      "to_node": "Value to String.007",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.006",
+      "from_socket": 0,
+      "to_node": "Value to String.008",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.009",
+      "from_socket": 0,
+      "to_node": "Value to String.005",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Value.002",
+      "from_socket": 0,
+      "to_node": "Value to String.005",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value.002",
+      "from_socket": 0,
+      "to_node": "Value to String.004",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value.002",
+      "from_socket": 0,
+      "to_node": "Value to String.003",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value.002",
+      "from_socket": 0,
+      "to_node": "Value to String.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value.002",
+      "from_socket": 0,
+      "to_node": "Value to String.006",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value.002",
+      "from_socket": 0,
+      "to_node": "Value to String.007",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value to String.008",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Join Strings.002",
+      "from_socket": 0,
+      "to_node": "Store Named Attribute.001",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Store Named Attribute.001",
+      "from_socket": 0,
+      "to_node": "Join Geometry.002",
+      "to_socket": 0
+    },
+    {
+      "from_node": "String.012",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math",
+      "from_socket": 0,
+      "to_node": "Repeat Output",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Repeat Input",
+      "from_socket": 2,
+      "to_node": "Value to String.009",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Group Input.006",
+      "from_socket": 0,
+      "to_node": "Store Named Attribute.001",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Join Strings.001",
+      "from_socket": 0,
+      "to_node": "Join Strings.002",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Value to String.009",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "String.013",
+      "from_socket": 0,
+      "to_node": "Join Strings.001",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Repeat Input",
+      "from_socket": 2,
+      "to_node": "Math",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.011",
+      "from_socket": 0,
+      "to_node": "Group.004",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.016",
+      "from_socket": 0,
+      "to_node": "Group.005",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Math.016",
+      "from_socket": 0,
+      "to_node": "Group.006",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Reroute.002",
+      "from_socket": 0,
+      "to_node": "Math.011",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Reroute.002",
+      "from_socket": 0,
+      "to_node": "Math.016",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Math.017",
+      "from_socket": 0,
+      "to_node": "Reroute.001",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Reroute.002",
+      "from_socket": 0,
+      "to_node": "Math.017",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Group Input.007",
+      "from_socket": 1,
+      "to_node": "Reroute.002",
+      "to_socket": 0
+    }
+  ]
+}

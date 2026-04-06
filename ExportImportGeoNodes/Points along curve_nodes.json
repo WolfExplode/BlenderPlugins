@@ -1,0 +1,660 @@
+{
+  "tree_name": "Points along curve",
+  "nodes": [
+    {
+      "id": "Mesh to Curve",
+      "type": "GeometryNodeMeshToCurve",
+      "name": "Mesh to Curve",
+      "location": [
+        -422.17059326171875,
+        -711.9426879882812
+      ],
+      "props": {
+        "status": false,
+        "mode": "EDGES"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "Resample curve",
+      "type": "GeometryNodeGroup",
+      "name": "Resample curve",
+      "location": [
+        -263.3901062011719,
+        -665.5064086914062
+      ],
+      "props": {
+        "status": false,
+        "node_tree": "Resample curve"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 1200
+        },
+        {
+          "socket": 2,
+          "value": false
+        },
+        {
+          "socket": 3,
+          "value": 12.0
+        },
+        {
+          "socket": 4,
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "id": "Smooth Hair Curves",
+      "type": "GeometryNodeGroup",
+      "name": "Smooth Hair Curves",
+      "location": [
+        -96.28361511230469,
+        -642.9174194335938
+      ],
+      "props": {
+        "status": false,
+        "node_tree": "Smooth Hair Curves"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0.009999999776482582
+        },
+        {
+          "socket": 2,
+          "value": 0.0
+        },
+        {
+          "socket": 3,
+          "value": 10
+        },
+        {
+          "socket": 4,
+          "value": 0.5
+        },
+        {
+          "socket": 5,
+          "value": false
+        },
+        {
+          "socket": 6,
+          "value": false
+        }
+      ]
+    },
+    {
+      "id": "Group Input.001",
+      "type": "NodeGroupInput",
+      "name": "Group Input.001",
+      "location": [
+        2330.37744140625,
+        -479.88134765625
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Group Output",
+      "type": "NodeGroupOutput",
+      "name": "Group Output",
+      "location": [
+        2642.91064453125,
+        -478.92840576171875
+      ],
+      "props": {
+        "status": false,
+        "is_active_output": true
+      }
+    },
+    {
+      "id": "Curve Object Info",
+      "type": "GeometryNodeObjectInfo",
+      "name": "Curve Object Info",
+      "location": [
+        -583.7115478515625,
+        -675.5708618164062
+      ],
+      "props": {
+        "status": false,
+        "transform_space": "RELATIVE"
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": "Path"
+        },
+        {
+          "socket": 1,
+          "value": false
+        }
+      ]
+    },
+    {
+      "id": "Store t",
+      "type": "GeometryNodeStoreNamedAttribute",
+      "name": "Store t",
+      "location": [
+        130.71414184570312,
+        -637.1570434570312
+      ],
+      "label": "Spline factor as t (before points)",
+      "props": {
+        "status": false,
+        "data_type": "FLOAT",
+        "domain": "POINT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": true
+        },
+        {
+          "socket": 2,
+          "value": "t"
+        },
+        {
+          "socket": 3,
+          "value": 0.0
+        }
+      ]
+    },
+    {
+      "id": "Spline Parameter",
+      "type": "GeometryNodeSplineParameter",
+      "name": "Spline Parameter",
+      "location": [
+        -91.61380767822266,
+        -899.5382690429688
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Curve to Points.001",
+      "type": "GeometryNodeCurveToPoints",
+      "name": "Curve to Points.001",
+      "location": [
+        390.71417236328125,
+        -637.1570434570312
+      ],
+      "props": {
+        "status": false,
+        "mode": "COUNT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 30
+        },
+        {
+          "socket": 2,
+          "value": 0.009999999776482582
+        }
+      ]
+    },
+    {
+      "id": "Named Attribute t",
+      "type": "GeometryNodeInputNamedAttribute",
+      "name": "Named Attribute t",
+      "location": [
+        548.4966430664062,
+        -893.3670043945312
+      ],
+      "props": {
+        "status": false,
+        "data_type": "FLOAT"
+      },
+      "inputs": [
+        {
+          "socket": 0,
+          "value": "t"
+        }
+      ]
+    },
+    {
+      "id": "Scene Time",
+      "type": "GeometryNodeInputSceneTime",
+      "name": "Scene Time",
+      "location": [
+        390.6125183105469,
+        -1084.7398681640625
+      ],
+      "props": {
+        "status": false
+      }
+    },
+    {
+      "id": "Time Speed",
+      "type": "ShaderNodeMath",
+      "name": "Time Speed",
+      "location": [
+        547.5570068359375,
+        -1033.366943359375
+      ],
+      "props": {
+        "status": false,
+        "operation": "MULTIPLY",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0.10000000149011612
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Offset Add",
+      "type": "ShaderNodeMath",
+      "name": "Offset Add",
+      "location": [
+        771.9686889648438,
+        -887.2047119140625
+      ],
+      "props": {
+        "status": false,
+        "operation": "ADD",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Wrap Factor",
+      "type": "ShaderNodeMath",
+      "name": "Wrap Factor",
+      "location": [
+        951.96875,
+        -887.2047119140625
+      ],
+      "props": {
+        "status": false,
+        "operation": "FRACT",
+        "use_clamp": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0.5
+        },
+        {
+          "socket": 2,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "id": "Sample Curve",
+      "type": "GeometryNodeSampleCurve",
+      "name": "Sample Curve",
+      "location": [
+        1130.714111328125,
+        -677.1570434570312
+      ],
+      "props": {
+        "status": false,
+        "mode": "FACTOR",
+        "use_all_curves": false,
+        "data_type": "FLOAT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0.0
+        },
+        {
+          "socket": 3,
+          "value": 0.0
+        },
+        {
+          "socket": 4,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "Set Position Points",
+      "type": "GeometryNodeSetPosition",
+      "name": "Set Position Points",
+      "location": [
+        1370.71435546875,
+        -637.1570434570312
+      ],
+      "props": {
+        "status": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "Pipe Normal",
+      "type": "GeometryNodeInputNormal",
+      "name": "Pipe Normal",
+      "location": [
+        2173.05029296875,
+        -616.1661376953125
+      ],
+      "props": {
+        "status": false,
+        "legacy_corner_normals": false
+      }
+    },
+    {
+      "id": "Proximity",
+      "type": "GeometryNodeProximity",
+      "name": "Proximity",
+      "location": [
+        1821.095703125,
+        -546.8402099609375
+      ],
+      "props": {
+        "status": false,
+        "target_element": "POINTS"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0
+        },
+        {
+          "socket": 2,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "socket": 3,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "Bulge Map",
+      "type": "ShaderNodeMapRange",
+      "name": "Bulge Map",
+      "location": [
+        1994.40625,
+        -471.3299255371094
+      ],
+      "props": {
+        "status": false,
+        "clamp": true,
+        "interpolation_type": "LINEAR",
+        "data_type": "FLOAT"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": 0.0
+        },
+        {
+          "socket": 2,
+          "value": 1.0
+        },
+        {
+          "socket": 3,
+          "value": 0.0
+        },
+        {
+          "socket": 4,
+          "value": 0.010000050067901611
+        },
+        {
+          "socket": 5,
+          "value": 4.0
+        },
+        {
+          "socket": 6,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "socket": 7,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "socket": 8,
+          "value": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "socket": 9,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "socket": 10,
+          "value": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        {
+          "socket": 11,
+          "value": [
+            4.0,
+            4.0,
+            4.0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Bulge Scale",
+      "type": "ShaderNodeVectorMath",
+      "name": "Bulge Scale",
+      "location": [
+        2331.470458984375,
+        -566.7088012695312
+      ],
+      "props": {
+        "status": false,
+        "operation": "SCALE"
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "socket": 2,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Set Position Pipe",
+      "type": "GeometryNodeSetPosition",
+      "name": "Set Position Pipe",
+      "location": [
+        2489.54150390625,
+        -480.7462463378906
+      ],
+      "props": {
+        "status": false
+      },
+      "inputs": [
+        {
+          "socket": 1,
+          "value": true
+        },
+        {
+          "socket": 2,
+          "value": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "from_node": "Mesh to Curve",
+      "from_socket": 0,
+      "to_node": "Resample curve",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Resample curve",
+      "from_socket": 0,
+      "to_node": "Smooth Hair Curves",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Store t",
+      "from_socket": 0,
+      "to_node": "Curve to Points.001",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Store t",
+      "from_socket": 0,
+      "to_node": "Sample Curve",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Curve to Points.001",
+      "from_socket": 0,
+      "to_node": "Set Position Points",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Named Attribute t",
+      "from_socket": 0,
+      "to_node": "Offset Add",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Scene Time",
+      "from_socket": 1,
+      "to_node": "Time Speed",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Time Speed",
+      "from_socket": 0,
+      "to_node": "Offset Add",
+      "to_socket": 1
+    },
+    {
+      "from_node": "Offset Add",
+      "from_socket": 0,
+      "to_node": "Wrap Factor",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Wrap Factor",
+      "from_socket": 0,
+      "to_node": "Sample Curve",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Sample Curve",
+      "from_socket": 1,
+      "to_node": "Set Position Points",
+      "to_socket": 2
+    },
+    {
+      "from_node": "Group Input.001",
+      "from_socket": 0,
+      "to_node": "Set Position Pipe",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Proximity",
+      "from_socket": 1,
+      "to_node": "Bulge Map",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Pipe Normal",
+      "from_socket": 0,
+      "to_node": "Bulge Scale",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Bulge Map",
+      "from_socket": 0,
+      "to_node": "Bulge Scale",
+      "to_socket": 3
+    },
+    {
+      "from_node": "Bulge Scale",
+      "from_socket": 0,
+      "to_node": "Set Position Pipe",
+      "to_socket": 3
+    },
+    {
+      "from_node": "Set Position Pipe",
+      "from_socket": 0,
+      "to_node": "Group Output",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Set Position Points",
+      "from_socket": 0,
+      "to_node": "Proximity",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Curve Object Info",
+      "from_socket": 4,
+      "to_node": "Mesh to Curve",
+      "to_socket": 0
+    },
+    {
+      "from_node": "Smooth Hair Curves",
+      "from_socket": 0,
+      "to_node": "Store t",
+      "to_socket": 0
+    }
+  ]
+}

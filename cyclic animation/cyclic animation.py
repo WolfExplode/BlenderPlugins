@@ -1,4 +1,5 @@
 import bpy
+import math
 import random
 from bpy.props import PointerProperty, EnumProperty, BoolProperty, FloatProperty, CollectionProperty, IntProperty
 from bpy.types import PropertyGroup, Operator, Panel
@@ -151,6 +152,36 @@ def _collect_actions_for_object(obj):
 def _is_baked_action_name(name):
     """Exclude Variable Playback outputs and similar: …_Baked, …_Blend_Baked, optional _ShapeKeys suffix."""
     return bool(name) and "_Baked" in name
+
+
+def _unlink_action_for_removal(action):
+    """
+    Clear active action and remove NLA strips referencing `action` so it can be
+    removed from bpy.data (Blender refuses to remove actions that still have users).
+    """
+    if action is None:
+        return
+
+    def clean_animdata(anim_data):
+        if not anim_data:
+            return
+        if anim_data.action == action:
+            anim_data.action = None
+        for track in anim_data.nla_tracks:
+            for strip in list(track.strips):
+                if strip.action == action:
+                    track.strips.remove(strip)
+
+    for ob in bpy.data.objects:
+        if ob.animation_data:
+            clean_animdata(ob.animation_data)
+    for coll in (bpy.data.meshes, bpy.data.curves, bpy.data.lattices):
+        for data in coll:
+            if getattr(data, "animation_data", None):
+                clean_animdata(data.animation_data)
+            sk = getattr(data, "shape_keys", None)
+            if sk and sk.animation_data:
+                clean_animdata(sk.animation_data)
 
 
 def get_action_slot_enum_items_for_object(obj):
@@ -416,9 +447,9 @@ class VariablePlaybackProps(PropertyGroup):
     animation_slots_index: IntProperty(default=0)
     
     bpm_curve: PointerProperty(
-        name="BPM Curve",
+        name="Speed",
         type=bpy.types.Object,
-        description="Curve object with X=time(min), Y=rate(BPM)",
+        description="Curve object with X=time (min), Y=rate (BPM). Defines how fast the cyclic animation runs over time",
         update=update_bpm_curve
     )
     
@@ -427,6 +458,16 @@ class VariablePlaybackProps(PropertyGroup):
         type=bpy.types.Object,
         description="Curve object with X=time(min), Y=influence (1m = 100%)",
         update=update_strength_curve
+    )
+
+    strength_influence_flat: FloatProperty(
+        name="Flat Influence",
+        description="Constant strength/influence when no strength curve data is loaded (1.0 = 100%%). Ignored after Read Strength Curve",
+        default=1.0,
+        min=0.0,
+        max=10.0,
+        soft_min=0.0,
+        soft_max=2.0,
     )
 
     # Random Intensity Controls
@@ -507,6 +548,12 @@ class VariablePlaybackProps(PropertyGroup):
         soft_min=0.0001,
         soft_max=0.1,
         precision=4
+    )
+
+    bake_overwrite_existing: BoolProperty(
+        name="Overwrite Existing Bake",
+        description="If an action with the baked output name already exists, remove it (including NLA strips using it) and replace. If off, bake is cancelled when that name is taken",
+        default=True,
     )
     
     def get_action_items(self, context):
@@ -609,7 +656,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
 
 
 class VARIABLEPLAYBACK_PT_section_bpm(Panel):
-    bl_label = "BPM Curve"
+    bl_label = "Speed"
     bl_idname = "VARIABLEPLAYBACK_PT_section_bpm"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -622,6 +669,7 @@ class VARIABLEPLAYBACK_PT_section_bpm(Panel):
         props = context.scene.variable_playback_props
 
         layout.prop(props, "bpm_curve", icon='CURVE_DATA')
+        layout.prop(props, "bake_speed_scale", slider=True)
 
         if "variable_playback_time_rate_pairs" in context.scene:
             pairs = context.scene["variable_playback_time_rate_pairs"]
@@ -669,6 +717,11 @@ class VARIABLEPLAYBACK_PT_section_strength(Panel):
         props = context.scene.variable_playback_props
 
         layout.prop(props, "strength_curve", icon='CURVE_DATA')
+
+        row = layout.row()
+        sub = row.column()
+        sub.enabled = "variable_playback_strength_influence_pairs" not in context.scene
+        sub.prop(props, "strength_influence_flat", slider=True)
 
         if "variable_playback_strength_influence_pairs" in context.scene:
             strength_pairs = context.scene["variable_playback_strength_influence_pairs"]
@@ -736,10 +789,9 @@ class VARIABLEPLAYBACK_PT_section_bake(Panel):
         layout = self.layout
         props = context.scene.variable_playback_props
 
-        layout.prop(props, "bake_speed_scale", slider=True)
-
         col = layout.column(align=True)
         col.prop(props, "simplify_tolerance", slider=True)
+        col.prop(props, "bake_overwrite_existing")
 
         col = layout.column(align=True)
         row = col.row(align=True)
@@ -765,7 +817,7 @@ class VARIABLEPLAYBACK_OT_read_curve(Operator):
         props = context.scene.variable_playback_props
         
         if not props.bpm_curve:
-            self.report({'ERROR'}, "No BPM curve selected")
+            self.report({'ERROR'}, "No speed curve selected")
             return {'CANCELLED'}
             
         src_obj = props.bpm_curve
@@ -1030,6 +1082,13 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
     bl_label = "Preview"
     bl_description = "Create empty that visualizes loop phase (X), rate (Y), and active animation (Z)"
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != 'OBJECT':
+            cls.poll_message_set("Switch to Object mode — Preview cannot add an empty in Pose mode")
+            return False
+        return True
     
     def execute(self, context):
         props = context.scene.variable_playback_props
@@ -1079,6 +1138,10 @@ class VARIABLEPLAYBACK_OT_preview(Operator):
         if name in bpy.data.objects:
             bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
         
+        if context.mode != 'OBJECT':
+            self.report({'WARNING'}, "Switch to Object mode — Preview cannot add an empty in Pose mode")
+            return {'CANCELLED'}
+
         bpy.ops.object.empty_add()
         preview_obj = context.active_object
         preview_obj.name = name
@@ -1157,10 +1220,10 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
     bl_description = "Bake variable playback into new action"
     bl_options = {'REGISTER', 'UNDO'}
     
-    def sample_strength(self, time_seconds, strength_pairs):
-        """Sample strength influence from time/influence pairs."""
+    def sample_strength(self, time_seconds, strength_pairs, flat_default):
+        """Sample strength influence from time/influence pairs, or flat_default if no curve data."""
         if not strength_pairs:
-            return 1.0  # Default to 100% influence if no curve provided
+            return max(float(flat_default), 0.0)
         
         if time_seconds <= strength_pairs[0][0]: 
             return strength_pairs[0][1]
@@ -1180,6 +1243,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         props = context.scene.variable_playback_props
         pairs = context.scene.get("variable_playback_time_rate_pairs")
         strength_pairs = context.scene.get("variable_playback_strength_influence_pairs", [])
+        strength_flat = getattr(props, "strength_influence_flat", 1.0)
         speed_scale = getattr(props, "bake_speed_scale", 1.0)
         
         if not pairs:
@@ -1307,12 +1371,12 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         suffix = "_ShapeKeys" if first_is_shape_key else ""
 
         if props.use_multiple_animations:
-            # Multi-animation mode: ActionName_Blend_Baked
+            # Multi-animation mode: ActionName_Blend[_Speedx.xx]_Baked
             highest_weight_data = max(action_data_list, key=lambda x: x['normalized_weight'])
             action_name = highest_weight_data['action'].name
-            base_name = f"{action_name}_Blend_Baked"
+            name_stem = f"{action_name}_Blend"
         else:
-            # Single animation mode: ActionName_SlotName_Baked
+            # Single animation mode: ActionName_SlotName or ActionName, then [_Speedx.xx]_Baked
             action = action_data_list[0]['action']
             action_name = action.name
             slot_id = action_data_list[0]['slot_id']
@@ -1325,14 +1389,36 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                         break
 
             if slot_name:
-                base_name = f"{action_name}_{slot_name}_Baked"
+                name_stem = f"{action_name}_{slot_name}"
             else:
-                base_name = f"{action_name}_Baked"
+                name_stem = action_name
+
+        if math.isclose(speed_scale, 1.0, rel_tol=0.0, abs_tol=1e-5):
+            base_name = f"{name_stem}_Baked"
+        else:
+            base_name = f"{name_stem}_Speed{speed_scale:.2f}_Baked"
 
         baked_name = base_name + suffix
-        if baked_name in bpy.data.actions:
-            bpy.data.actions.remove(bpy.data.actions[baked_name])
-        
+        existing_action = bpy.data.actions.get(baked_name)
+        if existing_action is not None:
+            if not props.bake_overwrite_existing:
+                self.report(
+                    {'ERROR'},
+                    f"Action '{baked_name}' already exists. Enable Overwrite Existing Bake or change the source action/slot.",
+                )
+                return {'CANCELLED'}
+            _unlink_action_for_removal(existing_action)
+            if getattr(existing_action, "use_fake_user", False):
+                existing_action.use_fake_user = False
+            if existing_action.users != 0:
+                self.report(
+                    {'ERROR'},
+                    f"Cannot overwrite '{baked_name}': still in use ({existing_action.users} user(s)). "
+                    "Unlink it in other editors or disable Overwrite and use another output name.",
+                )
+                return {'CANCELLED'}
+            bpy.data.actions.remove(existing_action)
+
         baked_action = bpy.data.actions.new(name=baked_name)
         if not target_datablock.animation_data:
             target_datablock.animation_data_create()
@@ -1431,7 +1517,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             phase += adjusted_rate * (1.0 / fps) * speed_scale
             
             normalized_phase = phase % 1.0
-            influence = self.sample_strength(t, strength_pairs)
+            influence = self.sample_strength(t, strength_pairs, strength_flat)
             
             # Detect phase wrap or first frame
             if frame == frame_start or normalized_phase < prev_normalized_phase:
@@ -1548,7 +1634,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         strip.frame_end = frame_end
         strip.action_frame_start = frame_start
         strip.action_frame_end = frame_end
-        strip.blend_type = 'REPLACE'
+        strip.blend_type = 'COMBINE'
 
         # Clear active action so the source clip does not stack with the new NLA strip.
         anim.action = None
