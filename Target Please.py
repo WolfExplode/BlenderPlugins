@@ -145,6 +145,13 @@ def _find_live_target_track_to_index(obj):
     return next((i for i, c in enumerate(obj.constraints) if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo')), None)
 
 
+def _find_live_target_childof_index(obj, empty):
+    return next((
+        i for i, c in enumerate(obj.constraints)
+        if c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf') and c.target == empty
+    ), None)
+
+
 def _find_live_target_track_to(obj, empty):
     for c in obj.constraints:
         if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo') and c.target == empty:
@@ -209,10 +216,22 @@ def _apply_live_target_trackto(scene, obj, empty):
             pass
 
 
-def _recreate_live_target_childof(scene, obj, empty):
-    """Bake off any existing LiveTarget Child Of, then re-add above Track To; one Set Inverse."""
-    _apply_live_target_childof(scene, obj, empty)
+def _ensure_live_target_constraint_order(obj, empty):
+    """Keep LiveTarget Track To above LiveTarget Child Of when both exist."""
     track_idx = _find_live_target_track_to_index(obj)
+    child_idx = _find_live_target_childof_index(obj, empty)
+    if track_idx is None or child_idx is None:
+        return
+    if track_idx > child_idx:
+        try:
+            obj.constraints.move(track_idx, child_idx)
+        except Exception:
+            pass
+
+
+def _recreate_live_target_childof(scene, obj, empty):
+    """Bake off any existing LiveTarget Child Of, then re-add and keep it below Track To."""
+    _apply_live_target_childof(scene, obj, empty)
     child_of = obj.constraints.new(type='CHILD_OF')
     child_of.name = "LiveTarget_ChildOf"
     child_of.target = empty
@@ -220,12 +239,7 @@ def _recreate_live_target_childof(scene, obj, empty):
         setattr(child_of, f'use_location_{axis}', True)
         setattr(child_of, f'use_rotation_{axis}', True)
         setattr(child_of, f'use_scale_{axis}', False)
-    co_idx = len(obj.constraints) - 1
-    if track_idx is not None and co_idx != track_idx:
-        try:
-            obj.constraints.move(co_idx, track_idx)
-        except Exception:
-            pass
+    _ensure_live_target_constraint_order(obj, empty)
     _smart_pivot_view_layers_update(scene)
     try:
         child_of.set_inverse_pending = True
@@ -247,6 +261,19 @@ def _recreate_live_target_trackto(scene, obj, empty, prev_state=None):
         track_to.track_axis = prev_state.get("track_axis", 'TRACK_NEGATIVE_Z')
         track_to.up_axis = prev_state.get("up_axis", 'UP_Y')
         track_to.use_target_z = prev_state.get("use_target_z", False)
+    _ensure_live_target_constraint_order(obj, empty)
+
+
+def _ensure_live_target_trackto(scene, obj, empty, prev_state=None):
+    """Guarantee a LiveTarget Track To exists for this object/empty pair."""
+    track_to = _find_live_target_track_to(obj, empty)
+    if track_to is not None:
+        _ensure_live_target_constraint_order(obj, empty)
+        return track_to
+    _recreate_live_target_trackto(scene, obj, empty, prev_state=prev_state)
+    track_to = _find_live_target_track_to(obj, empty)
+    _ensure_live_target_constraint_order(obj, empty)
+    return track_to
 
 
 def _get_uniform_scale_factor(base_scale, current_scale):
@@ -390,6 +417,10 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         # Otherwise stay fully transparent and let default G/R/S keymaps run.
         if empty is None or not orbit_objs or scene is None:
             return {'PASS_THROUGH'}
+
+        # Safety net: rebuild missing Track To if undo/redo or manual edits broke links.
+        for obj in orbit_objs:
+            _ensure_live_target_trackto(scene, obj, empty)
 
         # Apply expected pre-transform state.
         # Only Translate (Grab) should force-remove Child Of.
