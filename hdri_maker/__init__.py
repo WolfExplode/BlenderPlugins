@@ -159,18 +159,11 @@ def ensure_world_with_nodes(scene):
     nt = world.node_tree
     nodes = nt.nodes
 
-    blurry = nodes["BLURRY_Value"]
+    blurry = nodes["Blur_Value"]
     blurry.name = "Blur"
-    blurry.label = "Blur"
 
-    mix_node = nodes["HDRI_COLORIZE_MIX"]
-    multiply_node = next(
-        n
-        for n in nodes
-        if n != mix_node and n.bl_idname in {"ShaderNodeMix", "ShaderNodeMixRGB"}
-    )
-    multiply_node.name = "HDRI_COLORIZE_MULTIPLY"
-    multiply_node.label = "Colorize Mix"
+    multiply_node = nodes["HDRI Colorize Mix"]
+    multiply_node.name = "HDRI Colorize Mix"
 
     return world
 
@@ -188,15 +181,15 @@ def update_world_shader(self, context):
             n.inputs["Location"].default_value[2] = -props.menu_bottom
         elif n.name == "Background light":
             n.inputs["Strength"].default_value = props.emission_force
-        elif n.name == "Hdri hue_sat":
+        elif n.name == "HDRi hue_sat":
             n.inputs["Saturation"].default_value = props.hue_saturation
-        elif n.name == "HDRI_COLORIZE":
+        elif n.name in {"HDRi contrast", "HDRI_CONTRAST", "Contrast"}:
+            n.inputs["Contrast"].default_value = props.hdri_contrast
+        elif n.name == "HDRi colorize":
             n.outputs["Color"].default_value = props.colorize
-        elif n.name == "Blur":
+        elif n.name in {"Blur_Value", "Blur"}:
             n.outputs[0].default_value = props.blur_value / 2
-        elif n.name == "HDRI_COLORIZE_MIX":
-            n.inputs[0].default_value = props.colorize_mix
-        elif n.name == "HDRI_COLORIZE_MULTIPLY":
+        elif n.name in {"HDRI Colorize Mix", "HDRI_COLORIZE_MULTIPLY"}:
             n.inputs[0].default_value = props.colorize_mix
 
 
@@ -226,6 +219,7 @@ class HdriPropertyScene(PropertyGroup):
     menu_bottom: FloatProperty(default=0, min=-1, max=1, update=update_world_shader)
     emission_force: FloatProperty(default=2, min=0, max=20, update=update_world_shader)
     hue_saturation: FloatProperty(default=1, min=0, max=5, update=update_world_shader)
+    hdri_contrast: FloatProperty(default=0, min=-5, max=5, update=update_world_shader)
     blur_value: FloatProperty(default=0, min=0, max=0.5, update=update_world_shader)
     colorize_mix: FloatProperty(default=0, min=0, max=1, update=update_world_shader)
     colorize: FloatVectorProperty(
@@ -325,6 +319,7 @@ class HDRIMAKER_PT_Panel(Panel):
         box.label(text="World Shader")
         box.prop(props, "emission_force", text="HDRI light")
         box.prop(props, "hue_saturation", text="Saturation")
+        box.prop(props, "hdri_contrast", text="Contrast")
         box.prop(props, "blur_value", text="Blur", slider=True)
         row = box.row(align=True)
         split = row.split(factor=0.82, align=True)
