@@ -316,6 +316,7 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_options = {"UNDO"}
     start_x = 0
     start_rotation_angle = 0.0
+    DEPTH_EPSILON = 1e-4
 
     @staticmethod
     def get_gpu_buffer(xy, wh=(1, 1), centered=False) -> Buffer:
@@ -333,11 +334,12 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
 
     @classmethod
     def gpu_depth_ray_cast(cls, x, y, data):
-        size = 10
+        size = 1
         buffer = cls.get_gpu_buffer([x, y], wh=[size, size], centered=True)
-        numpy_buffer = np.asarray(buffer, dtype=np.float32).ravel()
-        min_depth = np.min(numpy_buffer)
-        data["is_in_model"] = min_depth != (0 or 1)
+        depth_samples = np.asarray(buffer, dtype=np.float32).ravel()
+        depth_value = float(depth_samples[0]) if depth_samples.size else 1.0
+        is_empty = (depth_value >= (1.0 - cls.DEPTH_EPSILON)) or (depth_value <= cls.DEPTH_EPSILON)
+        data["is_in_model"] = not is_empty
 
     def get_mouse_location_ray_cast(self, context, event):
         x, y = event.mouse_region_x, event.mouse_region_y
