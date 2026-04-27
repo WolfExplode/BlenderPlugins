@@ -314,6 +314,13 @@ def _is_supported_mode(context):
     return context.mode in {"OBJECT", "SCULPT"}
 
 
+def _is_orthographic_view(context):
+    region_3d = getattr(context.space_data, "region_3d", None)
+    if not region_3d:
+        return False
+    return region_3d.view_perspective == "ORTHO"
+
+
 class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_idname = "hdrimaker.rotate_hdri"
     bl_label = "Rotate HDRI"
@@ -370,7 +377,7 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
             return {"PASS_THROUGH"}
         if context.mode != "SCULPT" and not _is_rotation_preview(context.space_data):
             return {"PASS_THROUGH"}
-        if self.get_mouse_location_ray_cast(context, event):
+        if not _is_orthographic_view(context) and self.get_mouse_location_ray_cast(context, event):
             return {"FINISHED", "PASS_THROUGH"}
 
         self.start_x = event.mouse_region_x
