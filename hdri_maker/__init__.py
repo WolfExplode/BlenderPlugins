@@ -13,6 +13,8 @@ from math import radians
 
 import bpy
 import bpy.utils.previews
+import gpu
+import numpy as np
 from bpy.props import (
     BoolProperty,
     EnumProperty,
@@ -22,11 +24,13 @@ from bpy.props import (
     StringProperty,
 )
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, Scene, WindowManager
+from gpu.types import Buffer
 
 
 hdri_preview_collection = {}
 HDRI_WORLD_NAME = "HDRi Maker World"
 HDRI_ENV_NODE_NAME = "HDRi Maker Background"
+addon_keymaps = []
 
 
 def get_addon_prefs():
@@ -172,24 +176,30 @@ def update_world_shader(self, context):
     scn = context.scene
     props = scn.hdri_prop_scn
     world = scn.world
+    if not world or not world.use_nodes or not world.node_tree:
+        return
+
+    def normalize_name(name):
+        return name.strip().lower().replace(" ", "_")
 
     for n in world.node_tree.nodes:
-        if n.name == "World Rotation":
+        node_name = normalize_name(n.name)
+        if node_name == "world_rotation":
             n.inputs["Rotation"].default_value[0] = radians(props.rot_world_x)
             n.inputs["Rotation"].default_value[1] = radians(props.rot_world_y)
             n.inputs["Rotation"].default_value[2] = radians(props.rot_world_z)
             n.inputs["Location"].default_value[2] = -props.menu_bottom
-        elif n.name == "Background light":
+        elif node_name == "background_light":
             n.inputs["Strength"].default_value = props.emission_force
-        elif n.name == "HDRi hue_sat":
+        elif node_name in {"hdri_hue_sat", "hue_sat", "huesat"}:
             n.inputs["Saturation"].default_value = props.hue_saturation
-        elif n.name in {"HDRi contrast", "HDRI_CONTRAST", "Contrast"}:
+        elif node_name in {"hdri_contrast", "contrast"}:
             n.inputs["Contrast"].default_value = props.hdri_contrast
-        elif n.name == "HDRi colorize":
+        elif node_name == "hdri_colorize":
             n.outputs["Color"].default_value = props.colorize
-        elif n.name in {"Blur_Value", "Blur"}:
+        elif node_name in {"blur_value", "blur"}:
             n.outputs[0].default_value = props.blur_value / 2
-        elif n.name in {"HDRI Colorize Mix", "HDRI_COLORIZE_MULTIPLY"}:
+        elif node_name in {"hdri_colorize_mix", "hdri_colorize_multiply"}:
             n.inputs[0].default_value = props.colorize_mix
 
 
@@ -218,8 +228,8 @@ class HdriPropertyScene(PropertyGroup):
     rot_world_z: FloatProperty(default=0, update=update_world_shader)
     menu_bottom: FloatProperty(default=0, min=-1, max=1, update=update_world_shader)
     emission_force: FloatProperty(default=2, min=0, max=20, update=update_world_shader)
-    hue_saturation: FloatProperty(default=1, min=0, max=5, update=update_world_shader)
-    hdri_contrast: FloatProperty(default=0, min=-5, max=5, update=update_world_shader)
+    hue_saturation: FloatProperty(default=1, min=0, max=2, update=update_world_shader)
+    hdri_contrast: FloatProperty(default=0, min=-1, max=1, update=update_world_shader)
     blur_value: FloatProperty(default=0, min=0, max=0.5, update=update_world_shader)
     colorize_mix: FloatProperty(default=0, min=0, max=1, update=update_world_shader)
     colorize: FloatVectorProperty(
@@ -288,6 +298,100 @@ class HDRIMAKER_OT_Next(Operator):
         return {"FINISHED"}
 
 
+def _modal_exit(context):
+    context.window.cursor_set("DEFAULT")
+    if context.area:
+        context.area.header_text_set(None)
+
+
+def _is_rotation_preview(space_data):
+    if not space_data or not hasattr(space_data, "shading"):
+        return False
+    return space_data.shading.type in {"MATERIAL", "RENDERED"}
+
+
+class HDRIMAKER_OT_RotateHDRI(Operator):
+    bl_idname = "hdrimaker.rotate_hdri"
+    bl_label = "Rotate HDRI"
+    bl_options = {"UNDO"}
+    start_x = 0
+    start_rotation_angle = 0.0
+
+    @staticmethod
+    def get_gpu_buffer(xy, wh=(1, 1), centered=False) -> Buffer:
+        if isinstance(wh, (int, float)):
+            wh = (wh, wh)
+        elif len(wh) < 2:
+            wh = (wh[0], wh[0])
+
+        x, y, w, h = int(xy[0]), int(xy[1]), int(wh[0]), int(wh[1])
+        if centered:
+            x -= w // 2
+            y -= h // 2
+
+        return gpu.state.active_framebuffer_get().read_depth(x, y, w, h)
+
+    @classmethod
+    def gpu_depth_ray_cast(cls, x, y, data):
+        size = 10
+        buffer = cls.get_gpu_buffer([x, y], wh=[size, size], centered=True)
+        numpy_buffer = np.asarray(buffer, dtype=np.float32).ravel()
+        min_depth = np.min(numpy_buffer)
+        data["is_in_model"] = min_depth != (0 or 1)
+
+    def get_mouse_location_ray_cast(self, context, event):
+        x, y = event.mouse_region_x, event.mouse_region_y
+        view3d = context.space_data
+        show_xray = view3d.shading.show_xray
+        view3d.shading.show_xray = False
+        data = {}
+        space_view_3d = bpy.types.SpaceView3D
+        handle = space_view_3d.draw_handler_add(
+            self.gpu_depth_ray_cast,
+            (x, y, data),
+            "WINDOW",
+            "POST_PIXEL",
+        )
+        bpy.ops.wm.redraw_timer(type="DRAW", iterations=1)
+        space_view_3d.draw_handler_remove(handle, "WINDOW")
+        view3d.shading.show_xray = show_xray
+        return data.get("is_in_model", False)
+
+    def invoke(self, context, event):
+        if not context.area or context.area.type != "VIEW_3D":
+            return {"PASS_THROUGH"}
+        if not _is_rotation_preview(context.space_data):
+            return {"PASS_THROUGH"}
+        if self.get_mouse_location_ray_cast(context, event):
+            return {"FINISHED", "PASS_THROUGH"}
+
+        self.start_x = event.mouse_region_x
+        self.start_rotation_angle = context.scene.hdri_prop_scn.rot_world_z
+
+        context.window_manager.modal_handler_add(self)
+        context.window.cursor_set("MOVE_X")
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type == "RIGHTMOUSE" and event.value == "RELEASE":
+            _modal_exit(context)
+            return {"FINISHED"}
+        if event.type == "ESC":
+            _modal_exit(context)
+            return {"CANCELLED"}
+
+        if event.type == "MOUSEMOVE":
+            delta = (event.mouse_region_x - self.start_x) * 0.1
+            value = self.start_rotation_angle + delta
+            while value > 180:
+                value -= 360
+            while value < -180:
+                value += 360
+            context.scene.hdri_prop_scn.rot_world_z = value
+
+        return {"RUNNING_MODAL"}
+
+
 class HDRIMAKER_PT_Panel(Panel):
     bl_label = "HDRi Maker"
     bl_space_type = "VIEW_3D"
@@ -335,6 +439,7 @@ classes = (
     HDRIMAKER_OT_Add,
     HDRIMAKER_OT_Prev,
     HDRIMAKER_OT_Next,
+    HDRIMAKER_OT_RotateHDRI,
     HDRIMAKER_PT_Panel,
 )
 
@@ -354,8 +459,23 @@ def register():
         description="Select HDRI by preview",
     )
 
+    wm = bpy.context.window_manager
+    if wm.keyconfigs.addon:
+        km = wm.keyconfigs.addon.keymaps.new(name="3D View", space_type="VIEW_3D", region_type="WINDOW")
+        kmi = km.keymap_items.new(
+            idname=HDRIMAKER_OT_RotateHDRI.bl_idname,
+            type="RIGHTMOUSE",
+            value="PRESS",
+            shift=True,
+        )
+        addon_keymaps.append((km, kmi))
+
 
 def unregister():
+    for km, kmi in addon_keymaps:
+        km.keymap_items.remove(kmi)
+    addon_keymaps.clear()
+
     del WindowManager.hdri_category
     del Scene.hdri_prop_scn
 
