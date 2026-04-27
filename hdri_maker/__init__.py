@@ -310,6 +310,10 @@ def _is_rotation_preview(space_data):
     return space_data.shading.type in {"MATERIAL", "RENDERED"}
 
 
+def _is_supported_mode(context):
+    return context.mode in {"OBJECT", "SCULPT"}
+
+
 class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_idname = "hdrimaker.rotate_hdri"
     bl_label = "Rotate HDRI"
@@ -362,7 +366,9 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
     def invoke(self, context, event):
         if not context.area or context.area.type != "VIEW_3D":
             return {"PASS_THROUGH"}
-        if not _is_rotation_preview(context.space_data):
+        if not _is_supported_mode(context):
+            return {"PASS_THROUGH"}
+        if context.mode != "SCULPT" and not _is_rotation_preview(context.space_data):
             return {"PASS_THROUGH"}
         if self.get_mouse_location_ray_cast(context, event):
             return {"FINISHED", "PASS_THROUGH"}
@@ -471,6 +477,15 @@ def register():
             shift=True,
         )
         addon_keymaps.append((km, kmi))
+
+        sculpt_km = wm.keyconfigs.addon.keymaps.new(name="Sculpt", space_type="EMPTY", region_type="WINDOW")
+        sculpt_kmi = sculpt_km.keymap_items.new(
+            idname=HDRIMAKER_OT_RotateHDRI.bl_idname,
+            type="RIGHTMOUSE",
+            value="PRESS",
+            shift=True,
+        )
+        addon_keymaps.append((sculpt_km, sculpt_kmi))
 
 
 def unregister():
