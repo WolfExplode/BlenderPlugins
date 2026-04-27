@@ -518,6 +518,25 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         if self.transform_type == 'RESIZE' and self._dolly_zoom:
             _apply_dolly_zoom_state(self._dolly_zoom)
 
+        if (
+            self.transform_type == 'TRANSLATE'
+            and event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}
+            and event.value == 'PRESS'
+        ):
+            wheel_step = 0.1
+            delta = wheel_step if event.type == 'WHEELUPMOUSE' else -wheel_step
+            for name in self._orbit_object_names:
+                obj = bpy.data.objects.get(name)
+                if not obj:
+                    continue
+                local_z_world = (obj.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0)))
+                if local_z_world.length <= 1.0e-8:
+                    continue
+                local_z_world.normalize()
+                _set_world_translation(obj, obj.matrix_world.translation + (local_z_world * delta))
+            # Consume wheel so view zoom does not fight local-Z dolly while grabbing.
+            return {'RUNNING_MODAL'}
+
         # Detect both confirm and cancel keys while allowing transform to consume them.
         if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE', 'ESC'} and event.value in {'PRESS', 'CLICK'}:
             cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
