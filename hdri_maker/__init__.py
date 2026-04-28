@@ -332,7 +332,7 @@ def _wrap_studiolight_z(value):
 class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_idname = "hdrimaker.rotate_hdri"
     bl_label = "Rotate HDRI"
-    bl_options = {"UNDO"}
+    bl_options = {"INTERNAL"}
     start_x = 0
     start_rotation_angle = 0.0
     _use_studiolight_rotation = False
