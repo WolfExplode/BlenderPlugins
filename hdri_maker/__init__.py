@@ -9,7 +9,7 @@ bl_info = {
 }
 
 import os
-from math import radians
+from math import pi, radians
 
 import bpy
 import bpy.utils.previews
@@ -311,7 +311,7 @@ def _is_rotation_preview(space_data):
 
 
 def _is_supported_mode(context):
-    return context.mode in {"OBJECT", "SCULPT"}
+    return context.mode in {"OBJECT", "SCULPT", "PAINT_TEXTURE"}
 
 
 def _is_orthographic_view(context):
@@ -321,12 +321,21 @@ def _is_orthographic_view(context):
     return region_3d.view_perspective == "ORTHO"
 
 
+def _wrap_studiolight_z(value):
+    while value > pi:
+        value -= 2 * pi
+    while value < -pi:
+        value += 2 * pi
+    return value
+
+
 class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_idname = "hdrimaker.rotate_hdri"
     bl_label = "Rotate HDRI"
     bl_options = {"UNDO"}
     start_x = 0
     start_rotation_angle = 0.0
+    _use_studiolight_rotation = False
     DEPTH_EPSILON = 1e-4
 
     @staticmethod
@@ -380,8 +389,13 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
         if not _is_orthographic_view(context) and self.get_mouse_location_ray_cast(context, event):
             return {"FINISHED", "PASS_THROUGH"}
 
+        shading = context.space_data.shading
         self.start_x = event.mouse_region_x
-        self.start_rotation_angle = context.scene.hdri_prop_scn.rot_world_z
+        self._use_studiolight_rotation = _is_rotation_preview(context.space_data) and not shading.use_scene_world
+        if self._use_studiolight_rotation:
+            self.start_rotation_angle = shading.studiolight_rotate_z
+        else:
+            self.start_rotation_angle = context.scene.hdri_prop_scn.rot_world_z
 
         context.window_manager.modal_handler_add(self)
         context.window.cursor_set("MOVE_X")
@@ -396,13 +410,18 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
             return {"CANCELLED"}
 
         if event.type == "MOUSEMOVE":
-            delta = (event.mouse_region_x - self.start_x) * 0.1
-            value = self.start_rotation_angle + delta
-            while value > 180:
-                value -= 360
-            while value < -180:
-                value += 360
-            context.scene.hdri_prop_scn.rot_world_z = value
+            dx = event.mouse_region_x - self.start_x
+            if self._use_studiolight_rotation:
+                value = _wrap_studiolight_z(self.start_rotation_angle + radians(dx * 0.1))
+                context.space_data.shading.studiolight_rotate_z = value
+            else:
+                delta = dx * 0.1
+                value = self.start_rotation_angle + delta
+                while value > 180:
+                    value -= 360
+                while value < -180:
+                    value += 360
+                context.scene.hdri_prop_scn.rot_world_z = value
 
         return {"RUNNING_MODAL"}
 
