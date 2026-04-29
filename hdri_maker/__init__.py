@@ -32,6 +32,13 @@ HDRI_WORLD_NAME = "HDRi Maker World"
 HDRI_ENV_NODE_NAME = "HDRi Maker Background"
 addon_keymaps = []
 
+# msgbus owner must be a stable object for clear_by_owner on unregister
+_HDRI_MAKER_MSGBUS_OWNER = object()
+# SpaceView3D pointer -> (shading.type, shading.use_scene_world) last seen
+_last_shading_key = {}
+
+_STUDIO_SHADING_TYPES = frozenset({"MATERIAL", "RENDERED"})
+
 
 def get_addon_prefs():
     return bpy.context.preferences.addons[__name__].preferences
@@ -226,6 +233,14 @@ class HdriPropertyScene(PropertyGroup):
     rot_world_x: FloatProperty(default=0, update=update_world_shader)
     rot_world_y: FloatProperty(default=0, update=update_world_shader)
     rot_world_z: FloatProperty(default=0, update=update_world_shader)
+    rot_studio_material_z: FloatProperty(
+        default=0.0,
+        description="Viewport studio HDRI Z rotation (radians) for Material Preview when Scene World is off",
+    )
+    rot_studio_rendered_z: FloatProperty(
+        default=0.0,
+        description="Viewport studio HDRI Z rotation (radians) for Rendered Preview when Scene World is off",
+    )
     menu_bottom: FloatProperty(default=0, min=-1, max=1, update=update_world_shader)
     emission_force: FloatProperty(default=2, min=0, max=20, update=update_world_shader)
     hue_saturation: FloatProperty(default=1, min=0, max=2, update=update_world_shader)
@@ -329,6 +344,110 @@ def _wrap_studiolight_z(value):
     return value
 
 
+def _studio_rotation_prop_name(shading_type):
+    if shading_type == "MATERIAL":
+        return "rot_studio_material_z"
+    if shading_type == "RENDERED":
+        return "rot_studio_rendered_z"
+    return None
+
+
+def _scene_for_window(window):
+    return getattr(window, "scene", None) or bpy.context.scene
+
+
+def _iter_view3d_spaces():
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == "VIEW_3D":
+                yield window, area.spaces.active
+
+
+def _sync_shading_transition_for_space(window, space, old_key, new_key):
+    scene = _scene_for_window(window)
+    if not scene or not hasattr(scene, "hdri_prop_scn"):
+        return
+    props = scene.hdri_prop_scn
+    shading = space.shading
+    old_type, old_sw = old_key
+    new_type, new_sw = new_key
+
+    if (not old_sw) and old_type in _STUDIO_SHADING_TYPES:
+        z = shading.studiolight_rotate_z
+        if old_type == "MATERIAL":
+            props.rot_studio_material_z = z
+        else:
+            props.rot_studio_rendered_z = z
+
+    if (not new_sw) and new_type in _STUDIO_SHADING_TYPES:
+        if new_type == "MATERIAL":
+            shading.studiolight_rotate_z = _wrap_studiolight_z(props.rot_studio_material_z)
+        else:
+            shading.studiolight_rotate_z = _wrap_studiolight_z(props.rot_studio_rendered_z)
+
+
+def _on_view3d_shading_notify(*_args):
+    for window, space in _iter_view3d_spaces():
+        ptr = space.as_pointer()
+        shading = space.shading
+        new_key = (shading.type, shading.use_scene_world)
+        old_key = _last_shading_key.get(ptr)
+        if old_key is None:
+            _last_shading_key[ptr] = new_key
+        elif old_key != new_key:
+            _sync_shading_transition_for_space(window, space, old_key, new_key)
+            _last_shading_key[ptr] = new_key
+
+
+def _bootstrap_studio_rotation_props_from_viewports():
+    for window in bpy.context.window_manager.windows:
+        scene = _scene_for_window(window)
+        if not scene or not hasattr(scene, "hdri_prop_scn"):
+            continue
+        props = scene.hdri_prop_scn
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            shading = area.spaces.active.shading
+            if shading.use_scene_world:
+                continue
+            if shading.type == "MATERIAL":
+                props.rot_studio_material_z = shading.studiolight_rotate_z
+            elif shading.type == "RENDERED":
+                props.rot_studio_rendered_z = shading.studiolight_rotate_z
+
+
+def _init_shading_type_cache():
+    _last_shading_key.clear()
+    for _window, space in _iter_view3d_spaces():
+        shading = space.shading
+        _last_shading_key[space.as_pointer()] = (shading.type, shading.use_scene_world)
+
+
+def _subscribe_shading_msgbus():
+    bpy.msgbus.clear_by_owner(_HDRI_MAKER_MSGBUS_OWNER)
+    bpy.msgbus.subscribe_rna(
+        key=(bpy.types.View3DShading, "type"),
+        owner=_HDRI_MAKER_MSGBUS_OWNER,
+        args=(),
+        notify=_on_view3d_shading_notify,
+    )
+    bpy.msgbus.subscribe_rna(
+        key=(bpy.types.View3DShading, "use_scene_world"),
+        owner=_HDRI_MAKER_MSGBUS_OWNER,
+        args=(),
+        notify=_on_view3d_shading_notify,
+    )
+
+
+@bpy.app.handlers.persistent
+def _hdri_maker_load_post(_dummy):
+    """Blender clears msgbus subscribers on file load; restore subscriptions and caches."""
+    _bootstrap_studio_rotation_props_from_viewports()
+    _init_shading_type_cache()
+    _subscribe_shading_msgbus()
+
+
 class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_idname = "hdrimaker.rotate_hdri"
     bl_label = "Rotate HDRI"
@@ -336,6 +455,7 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
     start_x = 0
     start_rotation_angle = 0.0
     _use_studiolight_rotation = False
+    _studio_rotation_attr = None
     DEPTH_EPSILON = 1e-4
 
     @staticmethod
@@ -393,8 +513,15 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
         self.start_x = event.mouse_region_x
         self._use_studiolight_rotation = _is_rotation_preview(context.space_data) and not shading.use_scene_world
         if self._use_studiolight_rotation:
-            self.start_rotation_angle = shading.studiolight_rotate_z
+            props = context.scene.hdri_prop_scn
+            self._studio_rotation_attr = _studio_rotation_prop_name(shading.type)
+            if self._studio_rotation_attr:
+                self.start_rotation_angle = getattr(props, self._studio_rotation_attr)
+            else:
+                self._studio_rotation_attr = None
+                self.start_rotation_angle = shading.studiolight_rotate_z
         else:
+            self._studio_rotation_attr = None
             self.start_rotation_angle = context.scene.hdri_prop_scn.rot_world_z
 
         context.window_manager.modal_handler_add(self)
@@ -412,8 +539,12 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
         if event.type == "MOUSEMOVE":
             dx = event.mouse_region_x - self.start_x
             if self._use_studiolight_rotation:
+                shading = context.space_data.shading
+                attr = _studio_rotation_prop_name(shading.type) or self._studio_rotation_attr
                 value = _wrap_studiolight_z(self.start_rotation_angle + radians(dx * 0.1))
-                context.space_data.shading.studiolight_rotate_z = value
+                shading.studiolight_rotate_z = value
+                if attr:
+                    setattr(context.scene.hdri_prop_scn, attr, value)
             else:
                 delta = dx * 0.1
                 value = self.start_rotation_angle + delta
@@ -493,6 +624,12 @@ def register():
         description="Select HDRI by preview",
     )
 
+    _bootstrap_studio_rotation_props_from_viewports()
+    _init_shading_type_cache()
+    _subscribe_shading_msgbus()
+    if _hdri_maker_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_hdri_maker_load_post)
+
     wm = bpy.context.window_manager
     if wm.keyconfigs.addon:
         km = wm.keyconfigs.addon.keymaps.new(name="3D View", space_type="VIEW_3D", region_type="WINDOW")
@@ -518,6 +655,12 @@ def unregister():
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
     addon_keymaps.clear()
+
+    if _hdri_maker_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_hdri_maker_load_post)
+
+    bpy.msgbus.clear_by_owner(_HDRI_MAKER_MSGBUS_OWNER)
+    _last_shading_key.clear()
 
     del WindowManager.hdri_category
     del Scene.hdri_prop_scn
