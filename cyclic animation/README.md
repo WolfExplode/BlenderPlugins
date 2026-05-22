@@ -13,7 +13,6 @@
 - **Random variations**:
   - Per-loop random intensity multiplier.
   - Per-loop random speed multiplier (with seed control for reproducibility).
-- **Preview helper**: Creates an Empty with an action that visualizes phase, rate, and chosen animation index over time.
 - **Smart baking**:
   - Bakes only curves that exist for the chosen slot/datablock.
   - Optional F-curve simplification to reduce keyframe count.
@@ -42,7 +41,6 @@
    - **Baked Speed** (global speed multiplier),
    - **Random Intensity per Loop** (range and seed),
    - **Random Speed per Loop** (range).
-8. Use **Preview** to generate the visualization Empty.
-9. Click **Bake** to create a new baked action with the chosen options.
+8. Click **Bake** to create a new baked action with the chosen options.
 
 
