@@ -376,6 +376,30 @@ def update_strength_curve(self, context):
         if "variable_playback_strength_influence_pairs" in context.scene:
             del context.scene["variable_playback_strength_influence_pairs"]
 
+
+def sample_curve_object_vertices(curve_obj, context):
+    """
+    Tessellate a curve to mesh vertices without bpy.ops (works in Pose/Edit mode).
+    Returns a list of (x, y, z) coords, or None if the curve has fewer than 2 verts.
+    """
+    temp_obj = curve_obj.copy()
+    temp_obj.data = curve_obj.data.copy()
+    context.scene.collection.objects.link(temp_obj)
+    eval_obj = None
+    temp_mesh = None
+    try:
+        depsgraph = context.evaluated_depsgraph_get()
+        eval_obj = temp_obj.evaluated_get(depsgraph)
+        temp_mesh = eval_obj.to_mesh()
+        if len(temp_mesh.vertices) < 2:
+            return None
+        return [(v.co.x, v.co.y, v.co.z) for v in temp_mesh.vertices]
+    finally:
+        if eval_obj is not None:
+            eval_obj.to_mesh_clear()
+        bpy.data.objects.remove(temp_obj, do_unlink=True)
+
+
 # Custom property on source object's mesh data for drivers (Single Property on Mesh: '["variable_playback_bpm"]')
 VARIABLE_PLAYBACK_BPM_PROP = "variable_playback_bpm"
 
@@ -825,71 +849,37 @@ class VARIABLEPLAYBACK_OT_read_curve(Operator):
             self.report({'ERROR'}, "Selected object is not a curve")
             return {'CANCELLED'}
 
-        prev_active = context.view_layer.objects.active
-        prev_selected = context.selected_objects
-        
-        temp_obj = None
-        temp_mesh = None
-        
         try:
-            temp_obj = src_obj.copy()
-            temp_obj.data = src_obj.data.copy() 
-            context.scene.collection.objects.link(temp_obj)
-            
-            bpy.ops.object.select_all(action='DESELECT')
-            temp_obj.select_set(True)
-            context.view_layer.objects.active = temp_obj
-            
-            bpy.ops.object.convert(target='MESH')
-            
-            mesh = temp_obj.data
-            temp_mesh = mesh
-            verts = mesh.vertices
-            
-            if len(verts) < 2:
+            coords = sample_curve_object_vertices(src_obj, context)
+            if coords is None:
                 self.report({'ERROR'}, "Curve resolved to fewer than 2 vertices")
                 return {'CANCELLED'}
-            
+
             IMPORT_X_SCALE = 1 / 60.0
             IMPORT_Y_SCALE = 1 / 100.0
-            
+
             time_rate_pairs = []
-            for v in verts:
-                x, y = v.co.x, v.co.y
+            for x, y, _z in coords:
                 time_seconds = x / IMPORT_X_SCALE
                 bpm = y / IMPORT_Y_SCALE
                 if time_seconds >= 0:
                     time_rate_pairs.append((time_seconds, bpm))
-            
+
             time_rate_pairs.sort(key=lambda k: k[0])
-            
-            # Remove duplicates
+
             clean_pairs = []
             last_t = -1.0
             for t, bpm in time_rate_pairs:
                 if t > last_t:
                     clean_pairs.append((t, bpm))
                     last_t = t
-            
+
             context.scene["variable_playback_time_rate_pairs"] = clean_pairs
             self.report({'INFO'}, f"Sampled {len(clean_pairs)} points from curve.")
-            
+
         except Exception as e:
             self.report({'ERROR'}, f"Error processing curve: {str(e)}")
             return {'CANCELLED'}
-            
-        finally:
-            if temp_obj:
-                bpy.data.objects.remove(temp_obj, do_unlink=True)
-            if temp_mesh:
-                bpy.data.meshes.remove(temp_mesh, do_unlink=True)
-            
-            if prev_selected:
-                for obj in prev_selected:
-                    try: obj.select_set(True)
-                    except: pass
-            if prev_active:
-                context.view_layer.objects.active = prev_active
 
         return {'FINISHED'}
 
@@ -913,71 +903,36 @@ class VARIABLEPLAYBACK_OT_read_strength_curve(Operator):
             self.report({'ERROR'}, "Selected object is not a curve")
             return {'CANCELLED'}
 
-        prev_active = context.view_layer.objects.active
-        prev_selected = context.selected_objects
-        
-        temp_obj = None
-        temp_mesh = None
-        
         try:
-            temp_obj = src_obj.copy()
-            temp_obj.data = src_obj.data.copy() 
-            context.scene.collection.objects.link(temp_obj)
-            
-            bpy.ops.object.select_all(action='DESELECT')
-            temp_obj.select_set(True)
-            context.view_layer.objects.active = temp_obj
-            
-            bpy.ops.object.convert(target='MESH')
-            
-            mesh = temp_obj.data
-            temp_mesh = mesh
-            verts = mesh.vertices
-            
-            if len(verts) < 2:
+            coords = sample_curve_object_vertices(src_obj, context)
+            if coords is None:
                 self.report({'ERROR'}, "Curve resolved to fewer than 2 vertices")
                 return {'CANCELLED'}
-            
+
             IMPORT_X_SCALE = 1 / 60.0
-            # 1m = 100% influence = 1.0, so scale factor is 1.0
-            
+
             time_influence_pairs = []
-            for v in verts:
-                x, y = v.co.x, v.co.y
+            for x, y, _z in coords:
                 time_seconds = x / IMPORT_X_SCALE
-                influence = max(y, 0.0)  # Clamp negative values to 0
+                influence = max(y, 0.0)
                 if time_seconds >= 0:
                     time_influence_pairs.append((time_seconds, influence))
-            
+
             time_influence_pairs.sort(key=lambda k: k[0])
-            
-            # Remove duplicates
+
             clean_pairs = []
             last_t = -1.0
             for t, influence in time_influence_pairs:
                 if t > last_t:
                     clean_pairs.append((t, influence))
                     last_t = t
-            
+
             context.scene["variable_playback_strength_influence_pairs"] = clean_pairs
             self.report({'INFO'}, f"Sampled {len(clean_pairs)} strength points from curve.")
-            
+
         except Exception as e:
             self.report({'ERROR'}, f"Error processing strength curve: {str(e)}")
             return {'CANCELLED'}
-            
-        finally:
-            if temp_obj:
-                bpy.data.objects.remove(temp_obj, do_unlink=True)
-            if temp_mesh:
-                bpy.data.meshes.remove(temp_mesh, do_unlink=True)
-            
-            if prev_selected:
-                for obj in prev_selected:
-                    try: obj.select_set(True)
-                    except: pass
-            if prev_active:
-                context.view_layer.objects.active = prev_active
 
         return {'FINISHED'}
 
