@@ -5,7 +5,8 @@
 **Purpose**: Bake cyclic animations whose playback speed, strength, and even chosen action can vary over time, driven by curve data.
 
 **Key features**
-- **Variable BPM playback**: Uses a curve object (time on X, BPM on Y) to control playback speed over time.
+- **Variable BPM playback**: Uses a curve object (time on X, BPM on Y) to control playback speed over time. Each beat plays the **entire** source action once; cycle length on the timeline is `scene FPS × (60 / BPM)` frames (e.g. 60 BPM @ 24 fps → 24 frames per cycle, two cycles in 48 frames).
+- **Loop / fence-post**: Loop clips are often keyed `0..N` with frame `N` identical to frame `0` (e.g. `0..24` at 24 fps = 1 s, 25 keys, 24 frames of motion). The baker walks every key index `0..N` in order via a running step counter, so the seam frame (e.g. output 24 → source 24) is not placed one frame early and later cycles do not skip the loop start.
 - **Strength curve**: Optional second curve controls an overall influence/strength multiplier across the bake.
 - **Single or multi-action mode**:
   - Single mode: remap one action (or a specific slot/layer) over time.

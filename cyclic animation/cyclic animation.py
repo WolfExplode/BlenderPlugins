@@ -1,9 +1,8 @@
 # This should work for blender 5.0+
 
 import bpy
-import math
 import random
-from bpy.props import PointerProperty, EnumProperty, BoolProperty, FloatProperty, CollectionProperty, IntProperty
+from bpy.props import PointerProperty, EnumProperty, BoolProperty, FloatProperty, IntProperty
 from bpy.types import PropertyGroup, Operator, Panel
 
 SCENE_KEY_BPM = "variable_playback_time_rate_pairs"
@@ -242,62 +241,23 @@ def _fcurves_error(action, slot_id, fcurves):
     return f"Action '{action.name}': no F-Curves on selected slot"
 
 
-def make_action_data(obj, action, slot_id, weight):
-    fcurves = get_action_fcurves_for_slot(action, slot_id, datablock=target_datablock(obj, action))
+def build_action_data(props):
+    action, slot_id = parse_action_enum(props.source_action)
+    if not action:
+        return None, "Action not found"
+    fcurves = get_action_fcurves_for_slot(
+        action, slot_id, datablock=target_datablock(props.source_object, action)
+    )
     err = _fcurves_error(action, slot_id, fcurves)
     if err:
         return None, err
     return {
         "action": action,
         "slot_id": slot_id,
-        "weight": weight,
         "fcurves": fcurves,
-        "is_shape_key": is_shape_key_action(obj, action),
+        "is_shape_key": is_shape_key_action(props.source_object, action),
         "base_values": {},
     }, None
-
-
-def build_action_data_list(props, multi):
-    if multi:
-        if not props.animation_slots:
-            return None, "No animation slots defined"
-        action_data_list = []
-        total_weight = 0.0
-        for slot in props.animation_slots:
-            if not slot.action or slot.action == "NONE":
-                continue
-            action, slot_id = parse_action_enum(slot.action)
-            if not action:
-                continue
-            entry, err = make_action_data(props.source_object, action, slot_id, slot.weight)
-            if err:
-                return None, err
-            action_data_list.append(entry)
-            total_weight += slot.weight
-        if not action_data_list:
-            return None, "No valid actions selected"
-        if total_weight <= 0:
-            return None, "Total weight must be greater than 0"
-        for data in action_data_list:
-            data["normalized_weight"] = data["weight"] / total_weight
-        return action_data_list, None
-
-    action, slot_id = parse_action_enum(props.source_action)
-    if not action:
-        return None, "Action not found"
-    entry, err = make_action_data(props.source_object, action, slot_id, 100.0)
-    if err:
-        return None, err
-    entry["normalized_weight"] = 1.0
-    return [entry], None
-
-
-def select_weighted_index(cumulative_weights):
-    r = random.random()
-    for idx, cw_val in enumerate(cumulative_weights):
-        if r <= cw_val:
-            return idx
-    return len(cumulative_weights) - 1
 
 
 def simplify_fcurve(fcurve, tolerance=0.001):
@@ -357,6 +317,30 @@ def sample_curve_object_vertices(curve_obj, context):
         bpy.data.objects.remove(temp_obj, do_unlink=True)
 
 
+def cycle_output_frame_count(fps, effective_bpm):
+    """Output frames for one full source cycle at one beat (60/BPM seconds)."""
+    return max(1, round(fps * 60.0 / effective_bpm))
+
+
+def source_frame_for_loop_step(src_start, src_end, loop_step):
+    """
+    Map baked output order to a source frame for looping clips.
+
+    Loop / fence-post note:
+    Looping actions are usually keyed on frames 0..N where frame N matches frame 0
+    (e.g. 0..24 at 24 fps = 1 s: 25 keys, 24 frames of unique motion).
+    src_end is the closure key (same pose as src_start). period_frames = src_end - src_start
+    is the motion length in frames, not the number of keys.
+
+    A counter advances once per baked output frame and walks every key index
+    src_start..src_end via modulo before wrapping. That keeps the seam on frame src_end
+    (e.g. output 24 -> input 24) instead of squeezing N+1 keys into cycle_len slots
+    with (cycle_len - 1) in the denominator, which hits the last key one frame early.
+    """
+    key_count = src_end - src_start + 1
+    return src_start + (loop_step % key_count)
+
+
 def sample_pairs(time_seconds, pairs, default=None):
     if not pairs:
         return default
@@ -395,29 +379,9 @@ def read_curve_to_scene(context, curve_obj, scene_key, value_fn):
     return clean, None
 
 
-class AnimationSlot(PropertyGroup):
-    action: EnumProperty(
-        name="Action",
-        items=action_enum_items,
-    )
-    weight: FloatProperty(
-        name="Weight %",
-        default=100.0,
-        min=0.0,
-        max=100.0,
-        subtype="PERCENTAGE",
-    )
-
-
 class VariablePlaybackProps(PropertyGroup):
     source_object: PointerProperty(type=bpy.types.Object)
     source_action: EnumProperty(name="Source Action", items=action_enum_items)
-    use_multiple_animations: BoolProperty(
-        name="Use Multiple Animations",
-        default=False,
-    )
-    animation_slots: CollectionProperty(type=AnimationSlot)
-    animation_slots_index: IntProperty(default=0)
     bpm_curve: PointerProperty(type=bpy.types.Object, update=update_bpm_curve)
     strength_curve: PointerProperty(type=bpy.types.Object, update=update_strength_curve)
     strength_influence_flat: FloatProperty(
@@ -436,8 +400,9 @@ class VariablePlaybackProps(PropertyGroup):
     random_speed_min: FloatProperty(name="Min", default=0.8, min=0.1, max=3.0, soft_min=0.5, soft_max=2.0)
     random_speed_max: FloatProperty(name="Max", default=1.2, min=0.1, max=3.0, soft_min=0.5, soft_max=2.0)
     bake_speed_scale: FloatProperty(name="Speed Multiplier", default=1.0, min=0.05, soft_min=0.1, soft_max=2.0)
+    use_simplify_fcurve: BoolProperty(name="Simplify F-Curve", default=True)
     simplify_tolerance: FloatProperty(
-        name="Simplify F-Curve Tolerance",
+        name="Tolerance",
         default=0.001,
         min=0.0,
         soft_min=0.0001,
@@ -467,25 +432,6 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         obj = props.source_object
         if not obj or not self._object_has_anim(obj):
             layout.label(text="Select an object with animation data", icon="INFO")
-            return
-
-        layout.prop(props, "use_multiple_animations", icon="RADIOBUT_ON", text="Multi-Animation Mode")
-        if props.use_multiple_animations:
-            box = layout.box()
-            box.label(text="Animation Slots", icon="ANIM")
-            total_weight = sum(slot.weight for slot in props.animation_slots)
-            box.label(
-                text=f"Total: {total_weight:.1f}%" if abs(total_weight - 100.0) > 0.1 else "Total: 100%",
-                icon="ERROR" if abs(total_weight - 100.0) > 0.1 else "CHECKMARK",
-            )
-            for i, slot in enumerate(props.animation_slots):
-                row = box.row(align=True)
-                row.prop(slot, "action", text=f"#{i + 1}")
-                row.prop(slot, "weight", text="")
-            row = box.row(align=True)
-            row.operator("variable_playback.add_slot", icon="ADD")
-            row.operator("variable_playback.remove_slot", icon="REMOVE")
-            layout.label(text="Single action disabled in multi-mode", icon="INFO")
             return
 
         layout.prop(props, "source_action", icon="ACTION")
@@ -576,7 +522,10 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
     def _draw_bake(self, layout, props, context):
         box = layout.box()
         box.label(text="Bake & Output", icon="RENDER_ANIMATION")
-        box.prop(props, "simplify_tolerance", slider=True)
+        col = box.column(align=True)
+        col.prop(props, "use_simplify_fcurve", text="Simplify F-Curve")
+        if props.use_simplify_fcurve:
+            col.prop(props, "simplify_tolerance", slider=True)
         box.prop(props, "bake_overwrite_existing")
         row = box.row(align=True)
         row.operator("variable_playback.bake", icon="REC")
@@ -744,40 +693,28 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 else random.Random()
             )
 
-        action_data_list, err = build_action_data_list(
-            props, props.use_multiple_animations
-        )
+        action_data, err = build_action_data(props)
         if err:
             self.report({"ERROR"}, err)
             return {"CANCELLED"}
 
-        first_is_sk = action_data_list[0]["is_shape_key"]
-        for data in action_data_list:
-            if data["is_shape_key"] != first_is_sk:
-                self.report(
-                    {"ERROR"},
-                    f"Action '{data['action'].name}' type mismatch. "
-                    "All animations must be same type (object or shape key)",
-                )
-                return {"CANCELLED"}
+        action = action_data["action"]
+        slot_id = action_data["slot_id"]
+        fcurves = action_data["fcurves"]
+        is_shape_key = action_data["is_shape_key"]
 
         target_datablock = (
-            props.source_object.data.shape_keys if first_is_sk else props.source_object
+            props.source_object.data.shape_keys if is_shape_key else props.source_object
         )
-        suffix = "_ShapeKeys" if first_is_sk else ""
+        suffix = "_ShapeKeys" if is_shape_key else ""
 
-        if props.use_multiple_animations:
-            name_stem = f"{max(action_data_list, key=lambda x: x['normalized_weight'])['action'].name}_Blend"
-        else:
-            action = action_data_list[0]["action"]
-            slot_id = action_data_list[0]["slot_id"]
-            slot_name = ""
-            if slot_id and hasattr(action, "slots") and action.slots:
-                for slot in action.slots:
-                    if _resolve_slot_identifier(slot) == slot_id:
-                        slot_name = getattr(slot, "name", "") or slot_id
-                        break
-            name_stem = f"{action.name}_{slot_name}" if slot_name else action.name
+        slot_name = ""
+        if slot_id and hasattr(action, "slots") and action.slots:
+            for slot in action.slots:
+                if _resolve_slot_identifier(slot) == slot_id:
+                    slot_name = getattr(slot, "name", "") or slot_id
+                    break
+        name_stem = f"{action.name}_{slot_name}" if slot_name else action.name
 
         base_name = (
             f"{name_stem}_Baked"
@@ -813,49 +750,38 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
 
         frame_start, frame_end = context.scene.frame_start, context.scene.frame_end
 
-        all_data_paths = set()
-        for data in action_data_list:
-            try:
-                src_start, src_end = keyframes_frame_range_from_fcurves(data["fcurves"])
-            except ValueError:
-                self.report(
-                    {"ERROR"},
-                    f"Action '{data['action'].name}': no keyframes on selected slot F-Curves",
-                )
-                return {"CANCELLED"}
-            # Rest keys on frame 0 while baking from frame 1+ skew cycle length by one frame.
-            if src_start == 0 and frame_start > 0:
-                src_start = frame_start
-            src_duration = src_end - src_start
-            if src_duration == 0:
-                self.report({"ERROR"}, f"Action '{data['action'].name}' slot has zero duration")
-                return {"CANCELLED"}
-            data["src_start"], data["src_end"], data["src_duration"] = src_start, src_end, src_duration
-            data["base_values"] = _base_values_from_fcurves(data["fcurves"], src_start)
-            for fc in data["fcurves"]:
-                all_data_paths.add((fc.data_path, fc.array_index))
+        try:
+            src_start, src_end = keyframes_frame_range_from_fcurves(fcurves)
+        except ValueError:
+            self.report({"ERROR"}, f"Action '{action.name}': no keyframes on selected slot F-Curves")
+            return {"CANCELLED"}
+        # Rest keys on frame 0 while baking from frame 1+ skew cycle length by one frame.
+        if src_start == 0 and frame_start > 0:
+            src_start = frame_start
+        if src_end - src_start == 0:
+            self.report({"ERROR"}, f"Action '{action.name}' slot has zero duration")
+            return {"CANCELLED"}
+        action_data["src_start"] = src_start
+        action_data["src_end"] = src_end
+        action_data["base_values"] = _base_values_from_fcurves(fcurves, src_start)
+        fcurve_map = {(fc.data_path, fc.array_index): fc for fc in fcurves}
 
         baked_fcurves = {}
-        for dp, idx in all_data_paths:
+        for dp, idx in fcurve_map:
             baked_fc = ensure_fcurve(baked_action, target_datablock, dp, idx)
             if baked_fc:
                 baked_fcurves[(dp, idx)] = baked_fc
 
-        cumulative_weights = []
-        cw = 0.0
-        for data in action_data_list:
-            cw += data["normalized_weight"]
-            cumulative_weights.append(cw)
-
-        fps = context.scene.render.fps
+        fps = context.scene.render.fps or 24
         frame_count = frame_end - frame_start + 1
         frame_data = []
         wm = context.window_manager
         wm.progress_begin(0, frame_count)
 
-        S = frame_start
-        while S <= frame_end:
-            t_cycle = S / fps
+        T = frame_start
+        loop_step = 0
+        while T <= frame_end:
+            t_cycle = T / fps
             effective_bpm = max(sample_pairs(t_cycle, pairs) * speed_scale, 1e-6)
             if props.use_random_speed:
                 rng = speed_rng or random
@@ -863,7 +789,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                     effective_bpm * rng.uniform(props.random_speed_min, props.random_speed_max),
                     1e-6,
                 )
-            k = 60.0 / effective_bpm
+            cycle_len = cycle_output_frame_count(fps, effective_bpm)
 
             if props.use_random_intensity:
                 rng = intensity_rng or random
@@ -877,54 +803,28 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 default=max(float(strength_flat), 0.0),
             )
             final_influence = influence * loop_intensity
+            src_start_c, src_end_c = action_data["src_start"], action_data["src_end"]
 
-            if props.use_multiple_animations and len(action_data_list) > 1:
-                current_action_idx = select_weighted_index(cumulative_weights)
-            else:
-                current_action_idx = 0
-
-            current_data = action_data_list[current_action_idx]
-            cycle_len = max(1, round(current_data["src_duration"] * k) + 1)
-            src_start_c, src_end_c = current_data["src_start"], current_data["src_end"]
-
-            for offset in range(cycle_len):
-                T = S + offset
-                src_frame = src_end_c if offset == cycle_len - 1 else src_start_c + offset / k
-                frame_data.append((T, src_frame, current_action_idx, final_influence))
-
-            S += cycle_len
-            wm.progress_update(min(S - frame_start, frame_count))
+            for _offset in range(cycle_len):
+                src_frame = source_frame_for_loop_step(src_start_c, src_end_c, loop_step)
+                loop_step += 1
+                frame_data.append((T, src_frame, final_influence))
+                T += 1
+            wm.progress_update(min(T - frame_start, frame_count))
 
         tolerance = 1e-6
-        for data in action_data_list:
-            data["fcurve_map"] = {
-                (fc.data_path, fc.array_index): fc for fc in data["fcurves"]
-            }
-
         for (dp, idx), baked_fc in baked_fcurves.items():
-            src_fc_per_action = {}
-            base_val_per_action = {}
-            for action_idx, data in enumerate(action_data_list):
-                fc = data["fcurve_map"].get((dp, idx))
-                if fc is not None:
-                    src_fc_per_action[action_idx] = fc
-                    base_val_per_action[action_idx] = data["base_values"].get((dp, idx), 0.0)
-
-            relevant_frames = [
-                (frame, src_frame, influence, action_idx, src_fc_per_action[action_idx])
-                for frame, src_frame, action_idx, influence in frame_data
-                if action_idx in src_fc_per_action
-            ]
-            if not relevant_frames:
+            src_fc = fcurve_map.get((dp, idx))
+            if src_fc is None:
                 continue
+            first_value = action_data["base_values"].get((dp, idx), 0.0)
 
-            count = len(relevant_frames)
+            count = len(frame_data)
             baked_fc.keyframe_points.add(count)
             frames_out = [0.0] * count
             values_out = [0.0] * count
-            for i, (frame, src_frame, influence, action_idx, src_fc) in enumerate(relevant_frames):
+            for i, (frame, src_frame, influence) in enumerate(frame_data):
                 base_value = src_fc.evaluate(src_frame)
-                first_value = base_val_per_action[action_idx]
                 delta = base_value - first_value
                 values_out[i] = (
                     base_value
@@ -938,7 +838,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
 
         wm.progress_end()
 
-        if props.simplify_tolerance > 0:
+        if props.use_simplify_fcurve and props.simplify_tolerance > 0:
             total_removed = 0
             for fcurve in get_action_fcurves(baked_action, target_datablock):
                 total_removed += simplify_fcurve(fcurve, props.simplify_tolerance)
@@ -959,52 +859,20 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         anim.action = None
 
         mode_msg = []
-        if props.use_multiple_animations:
-            mode_msg.append("multiple animations")
         if props.use_random_intensity:
             mode_msg.append("random intensity")
         if props.use_random_speed:
             mode_msg.append("random speed")
-        mode_str = " + ".join(mode_msg) or "single animation"
+        mode_str = " + ".join(mode_msg) or "baked"
         self.report(
             {"INFO"},
-            f"Baked {actual_end_frame - frame_start + 1} frames to '{baked_name}' "
+            f"Baked keys {frame_start}..{actual_end_frame} to '{baked_name}' "
             f"on NLA track '{track.name}' ({mode_str})",
         )
         return {"FINISHED"}
 
 
-class VARIABLEPLAYBACK_OT_add_slot(Operator):
-    bl_idname = "variable_playback.add_slot"
-    bl_label = "Add Animation Slot"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        props = context.scene.variable_playback_props
-        props.animation_slots.add()
-        n = len(props.animation_slots)
-        props.animation_slots[-1].weight = 100.0 / n
-        return {"FINISHED"}
-
-
-class VARIABLEPLAYBACK_OT_remove_slot(Operator):
-    bl_idname = "variable_playback.remove_slot"
-    bl_label = "Remove Animation Slot"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        props = context.scene.variable_playback_props
-        if props.animation_slots:
-            props.animation_slots.remove(len(props.animation_slots) - 1)
-            if props.animation_slots:
-                w = 100.0 / len(props.animation_slots)
-                for slot in props.animation_slots:
-                    slot.weight = w
-        return {"FINISHED"}
-
-
 classes = (
-    AnimationSlot,
     VariablePlaybackProps,
     VARIABLEPLAYBACK_PT_panel,
     VARIABLEPLAYBACK_OT_read_curve,
@@ -1012,8 +880,6 @@ classes = (
     VARIABLEPLAYBACK_OT_keyframe_bpm_on_source,
     VARIABLEPLAYBACK_OT_copy_bpm_as_new_driver,
     VARIABLEPLAYBACK_OT_bake,
-    VARIABLEPLAYBACK_OT_add_slot,
-    VARIABLEPLAYBACK_OT_remove_slot,
 )
 
 
