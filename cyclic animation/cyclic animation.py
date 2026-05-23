@@ -134,7 +134,7 @@ def _collect_actions_for_object(obj):
 
 
 def _is_baked_action_name(name):
-    return bool(name) and "_Baked" in name
+    return bool(name) and "baked" in name.casefold()
 
 
 def _unlink_action_for_removal(action):
@@ -188,6 +188,8 @@ def get_action_slot_enum_items_for_object(obj):
             for slot in slots:
                 slot_id = _resolve_slot_identifier(slot)
                 slot_label = getattr(slot, "name", "") or (slot_id or "")
+                if _is_baked_action_name(slot_label):
+                    continue
                 label = f"{action.name} ({slot_label})" if slot_label else action.name
                 identifier = f"{action.name}|{slot_id}" if slot_id is not None else action.name
                 items.append((identifier, label, ""))
