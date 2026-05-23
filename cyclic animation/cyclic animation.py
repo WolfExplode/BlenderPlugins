@@ -9,10 +9,12 @@ SCENE_KEY_BPM = "variable_playback_time_rate_pairs"
 SCENE_KEY_STRENGTH = "variable_playback_strength_influence_pairs"
 VARIABLE_PLAYBACK_BPM_PROP = "variable_playback_bpm"
 CURVE_TIME_SCALE = 60.0  # curve X units → seconds (1/60 import scale)
+DEBUG = False
 
 
 def _debug_log(msg):
-    print(f"VariablePlayback: {msg}")
+    if DEBUG:
+        print(f"VariablePlayback: {msg}")
 
 
 def _get_action_slot_for_datablock(action, datablock):
@@ -330,14 +332,14 @@ def source_frame_for_cycle_offset(src_start, src_end, offset, cycle_len):
     """
     Map one output frame inside a BPM cycle to a source frame.
 
-    Each beat plays the entire source loop once across cycle_len output frames.
-    Fence-post loops (frame src_end matches src_start) land on src_end at the
-    last offset of the cycle.
+    Each beat spans the loop body (src_start through src_end - 1). The duplicate
+    closure key at src_end is only sampled when the bake appends a final frame.
     """
     key_count = src_end - src_start + 1
-    if key_count <= 1 or cycle_len <= 1:
+    loop_body = key_count - 1
+    if loop_body <= 0 or cycle_len <= 1:
         return src_start
-    key_index = round(offset * (key_count - 1) / (cycle_len - 1))
+    key_index = round(offset * (loop_body - 1) / (cycle_len - 1))
     return src_start + int(key_index)
 
 
@@ -827,13 +829,6 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 speed_mult = 1.0
             cycle_len = cycle_output_frame_count(fps, effective_bpm)
             cycle_end = T + cycle_len - 1
-            if cycle_end > frame_end:
-                _debug_log(
-                    f"Cycle {cycle_index + 1} skipped at T={T}: "
-                    f"needs frames {T}-{cycle_end}, but frame_end={frame_end} "
-                    f"(BPM={effective_bpm:.2f}, cycle_len={cycle_len})"
-                )
-                break
 
             if props.use_random_intensity:
                 rng = intensity_rng or random
@@ -848,6 +843,16 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             )
             final_influence = influence * loop_intensity
             src_start_c, src_end_c = action_data["src_start"], action_data["src_end"]
+
+            if cycle_end > frame_end:
+                if not frame_data or frame_data[-1][0] < frame_end:
+                    frame_data.append((frame_end, src_end_c, final_influence))
+                _debug_log(
+                    f"Cycle {cycle_index + 1} closing frame at {frame_end}: "
+                    f"source={src_end_c} (needs {cycle_len} frame(s) {T}-{cycle_end}, "
+                    f"BPM={effective_bpm:.2f})"
+                )
+                break
 
             for offset in range(cycle_len):
                 src_frame = source_frame_for_cycle_offset(
@@ -865,7 +870,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
                 f"Cycle {cycle_index}: output {T - cycle_len}-{T - 1}, "
                 f"t={t_cycle:.3f}s, raw_bpm={raw_bpm:.2f}, effective_bpm={effective_bpm:.2f}, "
                 f"speed_mult={speed_mult:.3f}, cycle_len={cycle_len}, "
-                f"source {src_first}-{src_last} (full loop per beat), "
+                f"source {src_first}-{src_last} (loop body per beat), "
                 f"influence={final_influence:.3f}"
             )
             wm.progress_update(min(T - frame_start, frame_count))
