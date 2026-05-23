@@ -11,6 +11,10 @@ VARIABLE_PLAYBACK_BPM_PROP = "variable_playback_bpm"
 CURVE_TIME_SCALE = 60.0  # curve X units → seconds (1/60 import scale)
 
 
+def _debug_log(msg):
+    print(f"VariablePlayback: {msg}")
+
+
 def _get_action_slot_for_datablock(action, datablock):
     anim = getattr(datablock, "animation_data", None)
     if anim and getattr(anim, "action", None) == action:
@@ -322,23 +326,19 @@ def cycle_output_frame_count(fps, effective_bpm):
     return max(1, round(fps * 60.0 / effective_bpm))
 
 
-def source_frame_for_loop_step(src_start, src_end, loop_step):
+def source_frame_for_cycle_offset(src_start, src_end, offset, cycle_len):
     """
-    Map baked output order to a source frame for looping clips.
+    Map one output frame inside a BPM cycle to a source frame.
 
-    Loop / fence-post note:
-    Looping actions are usually keyed on frames 0..N where frame N matches frame 0
-    (e.g. 0..24 at 24 fps = 1 s: 25 keys, 24 frames of unique motion).
-    src_end is the closure key (same pose as src_start). period_frames = src_end - src_start
-    is the motion length in frames, not the number of keys.
-
-    A counter advances once per baked output frame and walks every key index
-    src_start..src_end via modulo before wrapping. That keeps the seam on frame src_end
-    (e.g. output 24 -> input 24) instead of squeezing N+1 keys into cycle_len slots
-    with (cycle_len - 1) in the denominator, which hits the last key one frame early.
+    Each beat plays the entire source loop once across cycle_len output frames.
+    Fence-post loops (frame src_end matches src_start) land on src_end at the
+    last offset of the cycle.
     """
     key_count = src_end - src_start + 1
-    return src_start + (loop_step % key_count)
+    if key_count <= 1 or cycle_len <= 1:
+        return src_start
+    key_index = round(offset * (key_count - 1) / (cycle_len - 1))
+    return src_start + int(key_index)
 
 
 def sample_pairs(time_seconds, pairs, default=None):
@@ -381,7 +381,30 @@ def read_curve_to_scene(context, curve_obj, scene_key, value_fn):
 
 class VariablePlaybackProps(PropertyGroup):
     source_object: PointerProperty(type=bpy.types.Object)
-    source_action: EnumProperty(name="Source Action", items=action_enum_items)
+    source_action_id: bpy.props.StringProperty(default="NONE", options={"HIDDEN"})
+
+    def _get_source_action(self):
+        items = action_enum_items(self, bpy.context)
+        stored = self.source_action_id
+        for i, item in enumerate(items):
+            if item[0] == stored:
+                return i
+        return 0
+
+    def _set_source_action(self, value):
+        items = action_enum_items(self, bpy.context)
+        if 0 <= value < len(items):
+            self.source_action_id = items[value][0]
+        else:
+            self.source_action_id = "NONE"
+
+    source_action: EnumProperty(
+        name="Source Action",
+        items=action_enum_items,
+        get=_get_source_action,
+        set=_set_source_action,
+        options={"SKIP_SAVE"},
+    )
     bpm_curve: PointerProperty(type=bpy.types.Object, update=update_bpm_curve)
     strength_curve: PointerProperty(type=bpy.types.Object, update=update_strength_curve)
     strength_influence_flat: FloatProperty(
@@ -559,6 +582,11 @@ class VARIABLEPLAYBACK_OT_read_curve(Operator):
         if err:
             self.report({"ERROR"}, err)
             return {"CANCELLED"}
+        _debug_log(f"Read BPM data: {len(clean)} points")
+        for t, bpm in clean[:5]:
+            _debug_log(f"  t={t:.3f}s -> BPM={bpm:.2f}")
+        if len(clean) > 5:
+            _debug_log(f"  ... ({len(clean) - 5} more)")
         self.report({"INFO"}, f"Sampled {len(clean)} points from curve.")
         return {"FINISHED"}
 
@@ -774,22 +802,38 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
 
         fps = context.scene.render.fps or 24
         frame_count = frame_end - frame_start + 1
+        key_count = src_end - src_start + 1
+        _debug_log(
+            f"Bake start: action='{action.name}', output={frame_start}-{frame_end} "
+            f"({frame_count} frames), source={src_start}-{src_end} ({key_count} keys), fps={fps}"
+        )
+        _debug_log(f"  speed_scale={speed_scale}, BPM points={len(pairs)}")
+
         frame_data = []
         wm = context.window_manager
         wm.progress_begin(0, frame_count)
 
         T = frame_start
-        loop_step = 0
+        cycle_index = 0
         while T <= frame_end:
             t_cycle = T / fps
-            effective_bpm = max(sample_pairs(t_cycle, pairs) * speed_scale, 1e-6)
+            raw_bpm = sample_pairs(t_cycle, pairs)
+            effective_bpm = max(raw_bpm * speed_scale, 1e-6)
             if props.use_random_speed:
                 rng = speed_rng or random
-                effective_bpm = max(
-                    effective_bpm * rng.uniform(props.random_speed_min, props.random_speed_max),
-                    1e-6,
-                )
+                speed_mult = rng.uniform(props.random_speed_min, props.random_speed_max)
+                effective_bpm = max(effective_bpm * speed_mult, 1e-6)
+            else:
+                speed_mult = 1.0
             cycle_len = cycle_output_frame_count(fps, effective_bpm)
+            cycle_end = T + cycle_len - 1
+            if cycle_end > frame_end:
+                _debug_log(
+                    f"Cycle {cycle_index + 1} skipped at T={T}: "
+                    f"needs frames {T}-{cycle_end}, but frame_end={frame_end} "
+                    f"(BPM={effective_bpm:.2f}, cycle_len={cycle_len})"
+                )
+                break
 
             if props.use_random_intensity:
                 rng = intensity_rng or random
@@ -805,12 +849,31 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             final_influence = influence * loop_intensity
             src_start_c, src_end_c = action_data["src_start"], action_data["src_end"]
 
-            for _offset in range(cycle_len):
-                src_frame = source_frame_for_loop_step(src_start_c, src_end_c, loop_step)
-                loop_step += 1
+            for offset in range(cycle_len):
+                src_frame = source_frame_for_cycle_offset(
+                    src_start_c, src_end_c, offset, cycle_len
+                )
                 frame_data.append((T, src_frame, final_influence))
                 T += 1
+
+            cycle_index += 1
+            src_first = source_frame_for_cycle_offset(src_start_c, src_end_c, 0, cycle_len)
+            src_last = source_frame_for_cycle_offset(
+                src_start_c, src_end_c, cycle_len - 1, cycle_len
+            )
+            _debug_log(
+                f"Cycle {cycle_index}: output {T - cycle_len}-{T - 1}, "
+                f"t={t_cycle:.3f}s, raw_bpm={raw_bpm:.2f}, effective_bpm={effective_bpm:.2f}, "
+                f"speed_mult={speed_mult:.3f}, cycle_len={cycle_len}, "
+                f"source {src_first}-{src_last} (full loop per beat), "
+                f"influence={final_influence:.3f}"
+            )
             wm.progress_update(min(T - frame_start, frame_count))
+
+        _debug_log(
+            f"Bake schedule done: {cycle_index} cycle(s), {len(frame_data)} keyed frame(s), "
+            f"next T={T}"
+        )
 
         tolerance = 1e-6
         for (dp, idx), baked_fc in baked_fcurves.items():
@@ -836,14 +899,16 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
             baked_fc.keyframe_points.foreach_set("co", co_flat)
             baked_fc.update()
 
+        _debug_log(f"Wrote {len(baked_fcurves)} F-Curve(s), {len(frame_data)} key(s) each")
+
         wm.progress_end()
 
+        total_removed = 0
         if props.use_simplify_fcurve and props.simplify_tolerance > 0:
-            total_removed = 0
             for fcurve in get_action_fcurves(baked_action, target_datablock):
                 total_removed += simplify_fcurve(fcurve, props.simplify_tolerance)
             if total_removed > 0:
-                print(f"VariablePlayback: Simplified {total_removed} redundant keyframes")
+                _debug_log(f"Simplified {total_removed} redundant keyframe(s)")
 
         actual_end_frame = frame_data[-1][0] if frame_data else frame_end
         anim = target_datablock.animation_data
@@ -857,6 +922,11 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         if baked_slot is not None and hasattr(strip, "action_slot"):
             strip.action_slot = baked_slot
         anim.action = None
+
+        _debug_log(
+            f"Bake finished: '{baked_name}' on NLA track '{track.name}', "
+            f"strip frames {frame_start}-{actual_end_frame}"
+        )
 
         mode_msg = []
         if props.use_random_intensity:
