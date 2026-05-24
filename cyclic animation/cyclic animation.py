@@ -269,27 +269,23 @@ def build_action_data(props):
 
 
 def simplify_fcurve(fcurve, tolerance=0.001):
+    """Remove interior keyframes in runs of identical values (keep pairs of two)."""
     if tolerance <= 0:
         return 0
     points = fcurve.keyframe_points
-    if len(points) <= 2:
+    n = len(points)
+    if n <= 2:
         return 0
     to_remove = []
-    for i in range(1, len(points) - 1):
-        kf = points[i]
-        if kf.interpolation != "BEZIER":
-            continue
-        if kf.handle_left_type not in {"AUTO", "AUTO_CLAMPED", "VECTOR"}:
-            continue
-        if kf.handle_right_type not in {"AUTO", "AUTO_CLAMPED", "VECTOR"}:
-            continue
-        prev, nxt = points[i - 1], points[i + 1]
-        frame_range = nxt.co.x - prev.co.x
-        if frame_range == 0:
-            continue
-        t = (kf.co.x - prev.co.x) / frame_range
-        if abs(kf.co.y - (prev.co.y + t * (nxt.co.y - prev.co.y))) < tolerance:
-            to_remove.append(i)
+    run_start = 0
+    while run_start < n:
+        run_value = points[run_start].co.y
+        run_end = run_start
+        while run_end + 1 < n and abs(points[run_end + 1].co.y - run_value) < tolerance:
+            run_end += 1
+        if run_end > run_start + 1:
+            to_remove.extend(range(run_start + 1, run_end))
+        run_start = run_end + 1
     removed = len(to_remove)
     if removed:
         for i in reversed(to_remove):
@@ -454,14 +450,17 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         return bool(sk and sk.animation_data)
 
     def _draw_source(self, layout, props, context):
-        layout.label(text="Source & Animation", icon="OUTLINER_OB_ARMATURE")
-        layout.prop(props, "source_object", icon="OBJECT_DATA")
+        header, body = layout.panel("VARIABLEPLAYBACK_source", default_closed=False)
+        header.label(text="Source & Animation", icon="OUTLINER_OB_ARMATURE")
+        if not body:
+            return
+        body.prop(props, "source_object", icon="OBJECT_DATA")
         obj = props.source_object
         if not obj or not self._object_has_anim(obj):
-            layout.label(text="Select an object with animation data", icon="INFO")
+            body.label(text="Select an object with animation data", icon="INFO")
             return
 
-        layout.prop(props, "source_action", icon="ACTION")
+        body.prop(props, "source_action", icon="ACTION")
         if not props.source_action or props.source_action == "NONE":
             return
         action, slot_id = parse_action_enum(props.source_action)
@@ -470,7 +469,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         fcurves = get_action_fcurves_for_slot(
             action, slot_id, datablock=target_datablock(obj, action)
         )
-        col = layout.column(align=True)
+        col = body.column(align=True)
         if not fcurves:
             col.label(text="No F-Curves on selected slot", icon="ERROR")
             return
@@ -484,17 +483,19 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             col.label(text=f"Base Duration: {(fr[1] - fr[0]) / fps:.2f}s", icon="PLAY")
 
     def _draw_speed(self, layout, props, context):
-        box = layout.box()
-        box.label(text="Speed", icon="TIME")
-        box.prop(props, "bpm_curve", icon="CURVE_DATA")
-        box.prop(props, "bake_speed_scale", slider=True)
+        header, body = layout.panel("VARIABLEPLAYBACK_speed", default_closed=False)
+        header.label(text="Speed", icon="TIME")
+        if not body:
+            return
+        body.prop(props, "bpm_curve", icon="CURVE_DATA")
+        body.prop(props, "bake_speed_scale", slider=True)
         if SCENE_KEY_BPM in context.scene:
             pairs = context.scene[SCENE_KEY_BPM]
-            info = box.box()
+            info = body.box()
             info.label(text=f"Data Loaded: {len(pairs)} points", icon="CHECKMARK")
             for t, bpm in pairs[:3]:
                 info.label(text=f"  t={t:.2f}s, BPM={bpm:.1f}")
-        col = box.column(align=True)
+        col = body.column(align=True)
         col.operator("variable_playback.read_curve", icon="IMPORT")
         mesh_data = props.source_object.data if props.source_object else None
         is_mesh = isinstance(mesh_data, bpy.types.Mesh)
@@ -506,25 +507,29 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         row.enabled = props.source_object and is_mesh and VARIABLE_PLAYBACK_BPM_PROP in mesh_data
 
     def _draw_strength(self, layout, props, context):
-        box = layout.box()
-        box.label(text="Strength / Influence", icon="FORCE_FORCE")
-        box.prop(props, "strength_curve", icon="CURVE_DATA")
-        row = box.row()
+        header, body = layout.panel("VARIABLEPLAYBACK_strength", default_closed=False)
+        header.label(text="Strength / Influence", icon="FORCE_FORCE")
+        if not body:
+            return
+        body.prop(props, "strength_curve", icon="CURVE_DATA")
+        row = body.row()
         sub = row.column()
         sub.enabled = SCENE_KEY_STRENGTH not in context.scene
         sub.prop(props, "strength_influence_flat", slider=True)
         if SCENE_KEY_STRENGTH in context.scene:
             pairs = context.scene[SCENE_KEY_STRENGTH]
-            info = box.box()
+            info = body.box()
             info.label(text=f"Strength Data: {len(pairs)} points", icon="CHECKMARK")
             for t, influence in pairs[:3]:
                 info.label(text=f"  t={t:.2f}s, Influence={influence:.1%}")
-        box.operator("variable_playback.read_strength_curve", icon="IMPORT")
+        body.operator("variable_playback.read_strength_curve", icon="IMPORT")
 
     def _draw_variation(self, layout, props):
-        box = layout.box()
-        box.label(text="Random per Loop", icon="MODIFIER")
-        sub = box.box()
+        header, body = layout.panel("VARIABLEPLAYBACK_variation", default_closed=False)
+        header.label(text="Random per Loop", icon="MODIFIER")
+        if not body:
+            return
+        sub = body.box()
         sub.label(text="Random Intensity", icon="SHADERFX")
         col = sub.column(align=True)
         col.prop(props, "use_random_intensity", text="Enable")
@@ -533,7 +538,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             row = col.row(align=True)
             row.prop(props, "random_intensity_min", text="Min")
             row.prop(props, "random_intensity_max", text="Max")
-        sub = box.box()
+        sub = body.box()
         sub.label(text="Random Speed", icon="TIME")
         col = sub.column(align=True)
         col.prop(props, "use_random_speed", text="Enable")
@@ -547,14 +552,16 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             row.prop(props, "random_speed_max", text="Max")
 
     def _draw_bake(self, layout, props, context):
-        box = layout.box()
-        box.label(text="Bake & Output", icon="RENDER_ANIMATION")
-        col = box.column(align=True)
+        header, body = layout.panel("VARIABLEPLAYBACK_bake", default_closed=False)
+        header.label(text="Bake & Output", icon="RENDER_ANIMATION")
+        if not body:
+            return
+        col = body.column(align=True)
         col.prop(props, "use_simplify_fcurve", text="Simplify F-Curve")
         if props.use_simplify_fcurve:
             col.prop(props, "simplify_tolerance", slider=True)
-        box.prop(props, "bake_overwrite_existing")
-        row = box.row(align=True)
+        body.prop(props, "bake_overwrite_existing")
+        row = body.row(align=True)
         row.operator("variable_playback.bake", icon="REC")
         row.enabled = SCENE_KEY_BPM in context.scene
 
@@ -925,7 +932,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         strip.frame_end = actual_end_frame
         strip.action_frame_start = frame_start
         strip.action_frame_end = actual_end_frame
-        strip.blend_type = "REPLACE"
+        strip.blend_type = "COMBINE"
         if baked_slot is not None and hasattr(strip, "action_slot"):
             strip.action_slot = baked_slot
         anim.action = None
