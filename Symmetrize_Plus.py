@@ -166,7 +166,6 @@ def _draw_symmetrize_status(op):
         if op.weight_paint:
             _draw_status_item(row, active=op.use_topology, key='T', text='Topology', gap=10)
             if op.has_vertex_groups:
-                _draw_status_item(row, active=op.mirror_vertex_groups, key='V', text='Mirror Vertex Groups', gap=2)
                 _draw_status_item(row, active=op.mirror_paired_bones, key='B', text='Mirror to Paired Bone', gap=2)
             sp = op.active.symmetrize_plus
             _draw_status_item(row, key=['CTRL', 'SHIFT'], text='Axis Locks', gap=4)
@@ -993,7 +992,6 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             column.prop(self, "use_topology", text="Topology Mirror", toggle=True)
             if self.has_vertex_groups:
                 column.separator()
-                column.prop(self, "mirror_vertex_groups", text="Mirror Vertex Groups", toggle=True)
                 column.prop(self, "mirror_paired_bones", text="Mirror to Paired Bone (.L/.R)", toggle=True)
             return
 
@@ -1150,12 +1148,14 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             _draw_label(context, f"Weight Mirror ({topo})", (p0.x, bottom_y), center=True, color=tcolor, alpha=talpha)
             if self.has_vertex_groups:
                 bottom_y -= 15 * scale
-                title = f"{'Mirror' if self.mirror_vertex_groups else 'has'} Vertex Groups"
-                gcolor, galpha = (GREEN, 1.0) if self.mirror_vertex_groups else (WHITE, 0.2)
-                _draw_label(context, title, (p0.x, bottom_y), center=True, color=gcolor, alpha=galpha)
-                bottom_y -= 15 * scale
-                paired = 'Paired Bone (.L/.R)' if self.mirror_paired_bones else 'Same Group'
-                pcolor, palpha = (YELLOW, 1.0) if self.mirror_paired_bones else (WHITE, 0.2)
+                active_vg = self.active.vertex_groups.active
+                paired_name = _paired_vertex_group_name(active_vg.name) if active_vg else None
+                has_pair = bool(
+                    paired_name and self.active.vertex_groups.get(paired_name)
+                )
+                mirror_to_paired = self.mirror_paired_bones and has_pair
+                paired = 'Paired Bone (.L/.R)' if mirror_to_paired else 'Same Group'
+                pcolor, palpha = (YELLOW, 1.0) if mirror_to_paired else (WHITE, 0.2)
                 _draw_label(context, paired, (p0.x, bottom_y), center=True, color=pcolor, alpha=palpha)
             return
 
@@ -1228,7 +1228,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         if self.weight_paint:
             events.append('T')
             if self.has_vertex_groups:
-                events.extend(['V', 'B'])
+                events.append('B')
         else:
             events.extend(['S', 'P'])
             if not self.remove:
@@ -1271,10 +1271,6 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
             elif self.weight_paint and event.type == 'T' and event.value == 'PRESS':
                 self.use_topology = not self.use_topology
-                _force_ui_update(context)
-
-            elif self.weight_paint and event.type == 'V' and event.value == 'PRESS':
-                self.mirror_vertex_groups = not self.mirror_vertex_groups
                 _force_ui_update(context)
 
             elif self.weight_paint and event.type == 'B' and event.value == 'PRESS':
@@ -1359,10 +1355,6 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         _finish_status(self)
 
     def _execute_weight_paint(self, context):
-        if not self.mirror_vertex_groups:
-            self.report({'WARNING'}, "Mirror vertex groups disabled")
-            return {'CANCELLED'}
-
         if self.axis != 'X':
             self.report({'WARNING'}, "Weight mirror only supports the X axis in Blender")
             return {'CANCELLED'}
@@ -1375,14 +1367,11 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             return {'CANCELLED'}
 
         active_vg = obj.vertex_groups.active
+        paired_name = None
+        mirror_to_paired = False
         if self.mirror_paired_bones:
             paired_name = _paired_vertex_group_name(active_vg.name)
-            if not paired_name or obj.vertex_groups.get(paired_name) is None:
-                self.report(
-                    {'WARNING'},
-                    f"No paired vertex group for '{active_vg.name}' (expected .L/.R naming)",
-                )
-                return {'CANCELLED'}
+            mirror_to_paired = bool(paired_name and obj.vertex_groups.get(paired_name))
 
         flick_dir, _ = self.flick_direction.split('_')
         sign = 1.0 if flick_dir == 'POSITIVE' else -1.0
@@ -1397,7 +1386,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         bm.select_flush_mode()
 
-        if self.mirror_paired_bones:
+        if mirror_to_paired:
             paired_vg = obj.vertex_groups[paired_name]
             dvert = bm.verts.layers.deform.verify()
             # Blender mirrors in-place when the active group is weighted on both sides.
@@ -1413,7 +1402,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         bpy.ops.object.vertex_group_mirror(
             mirror_weights=True,
-            flip_group_names=self.mirror_paired_bones,
+            flip_group_names=mirror_to_paired,
             all_groups=False,
             use_topology=self.use_topology,
         )
