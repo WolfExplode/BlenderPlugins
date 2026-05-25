@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Symmetrize Plus",
     "author": "WXP",
-    "version": (0, 1, 3),
+    "version": (0, 1, 4),
     "blender": (4, 0, 0),
     "location": "Edit Mesh / Weight Paint: Alt+X",
     "description": "MESHmachine-style symmetrize with flick gizmo (mesh + weight paint)",
@@ -167,6 +167,7 @@ def _draw_symmetrize_status(op):
             _draw_status_item(row, active=op.use_topology, key='T', text='Topology', gap=10)
             if op.has_vertex_groups:
                 _draw_status_item(row, active=op.mirror_vertex_groups, key='V', text='Mirror Vertex Groups', gap=2)
+                _draw_status_item(row, active=op.mirror_paired_bones, key='B', text='Mirror to Paired Bone', gap=2)
             sp = op.active.symmetrize_plus
             _draw_status_item(row, key=['CTRL', 'SHIFT'], text='Axis Locks', gap=4)
             _draw_status_item(row, active=sp.lock_x, key='X', text='', gap=1)
@@ -381,6 +382,35 @@ def _loop_index_update(bm):
         for loop in face.loops:
             loop.index = lidx
             lidx += 1
+
+
+def _paired_vertex_group_name(name):
+    """Return the L/R counterpart name (Blender-style .L/.R suffix)."""
+    for left, right in (
+        ('.L', '.R'), ('.R', '.L'),
+        ('_L', '_R'), ('_R', '_L'),
+        ('.l', '.r'), ('.r', '.l'),
+        ('_l', '_r'), ('_r', '_l'),
+    ):
+        if name.endswith(left):
+            return name[:-len(left)] + right
+    return None
+
+
+def _deform_clear_vgroup(bm, dvert, vg_index):
+    for v in bm.verts:
+        weights = v[dvert]
+        if vg_index in weights:
+            del weights[vg_index]
+
+
+def _deform_remove_vgroup_selected(bm, dvert, vg_index):
+    for v in bm.verts:
+        if not v.select:
+            continue
+        weights = v[dvert]
+        if vg_index in weights:
+            del weights[vg_index]
 
 
 def _add_vgroup(obj, name, vert_ids, weight=1.0):
@@ -940,6 +970,11 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         default=False,
         description="Topology-based mirror for weight paint vertex_group_mirror",
     )
+    mirror_paired_bones: BoolProperty(
+        name="Mirror to Paired Bone",
+        default=False,
+        description="Mirror weights from the active .L/.R vertex group into its paired group (e.g. Bone.L → Bone.R)",
+    )
 
     @classmethod
     def poll(cls, context):
@@ -959,6 +994,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             if self.has_vertex_groups:
                 column.separator()
                 column.prop(self, "mirror_vertex_groups", text="Mirror Vertex Groups", toggle=True)
+                column.prop(self, "mirror_paired_bones", text="Mirror to Paired Bone (.L/.R)", toggle=True)
             return
 
         row = column.row(align=True)
@@ -1117,6 +1153,10 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
                 title = f"{'Mirror' if self.mirror_vertex_groups else 'has'} Vertex Groups"
                 gcolor, galpha = (GREEN, 1.0) if self.mirror_vertex_groups else (WHITE, 0.2)
                 _draw_label(context, title, (p0.x, bottom_y), center=True, color=gcolor, alpha=galpha)
+                bottom_y -= 15 * scale
+                paired = 'Paired Bone (.L/.R)' if self.mirror_paired_bones else 'Same Group'
+                pcolor, palpha = (YELLOW, 1.0) if self.mirror_paired_bones else (WHITE, 0.2)
+                _draw_label(context, paired, (p0.x, bottom_y), center=True, color=pcolor, alpha=palpha)
             return
 
         if not self.remove:
@@ -1188,7 +1228,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         if self.weight_paint:
             events.append('T')
             if self.has_vertex_groups:
-                events.append('V')
+                events.extend(['V', 'B'])
         else:
             events.extend(['S', 'P'])
             if not self.remove:
@@ -1235,6 +1275,10 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
             elif self.weight_paint and event.type == 'V' and event.value == 'PRESS':
                 self.mirror_vertex_groups = not self.mirror_vertex_groups
+                _force_ui_update(context)
+
+            elif self.weight_paint and event.type == 'B' and event.value == 'PRESS':
+                self.mirror_paired_bones = not self.mirror_paired_bones
                 _force_ui_update(context)
 
             elif (
@@ -1330,6 +1374,16 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             self.report({'WARNING'}, "No active vertex group")
             return {'CANCELLED'}
 
+        active_vg = obj.vertex_groups.active
+        if self.mirror_paired_bones:
+            paired_name = _paired_vertex_group_name(active_vg.name)
+            if not paired_name or obj.vertex_groups.get(paired_name) is None:
+                self.report(
+                    {'WARNING'},
+                    f"No paired vertex group for '{active_vg.name}' (expected .L/.R naming)",
+                )
+                return {'CANCELLED'}
+
         flick_dir, _ = self.flick_direction.split('_')
         sign = 1.0 if flick_dir == 'POSITIVE' else -1.0
         orig_mask = mesh.use_paint_mask_vertex
@@ -1342,6 +1396,16 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             v.select = (v.co.x * sign) > 1e-5
 
         bm.select_flush_mode()
+
+        if self.mirror_paired_bones:
+            paired_vg = obj.vertex_groups[paired_name]
+            dvert = bm.verts.layers.deform.verify()
+            # Blender mirrors in-place when the active group is weighted on both sides.
+            # Clear the paired group and the active group on the destination side so
+            # vertex_group_mirror always copies source -> paired.
+            _deform_clear_vgroup(bm, dvert, paired_vg.index)
+            _deform_remove_vgroup_selected(bm, dvert, active_vg.index)
+
         bmesh.update_edit_mesh(mesh)
 
         bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
@@ -1349,7 +1413,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         bpy.ops.object.vertex_group_mirror(
             mirror_weights=True,
-            flip_group_names=False,
+            flip_group_names=self.mirror_paired_bones,
             all_groups=False,
             use_topology=self.use_topology,
         )
