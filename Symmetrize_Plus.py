@@ -396,20 +396,144 @@ def _paired_vertex_group_name(name):
     return None
 
 
-def _deform_clear_vgroup(bm, dvert, vg_index):
-    for v in bm.verts:
-        weights = v[dvert]
-        if vg_index in weights:
-            del weights[vg_index]
+def _vg_weights_snapshot(obj, vg):
+    """Return {vert_index: weight} for every vertex assigned to vg."""
+    idx = vg.index
+    return {v.index: g.weight for v in obj.data.vertices for g in v.groups if g.group == idx}
 
 
-def _deform_remove_vgroup_selected(bm, dvert, vg_index):
-    for v in bm.verts:
-        if not v.select:
+def _restore_vg_from_snapshot(vg, mesh, snapshot):
+    """Restore a vertex group to a previously snapshotted state."""
+    vg.remove([v.index for v in mesh.vertices])
+    for vi, w in snapshot.items():
+        if w > 0.0:
+            vg.add([vi], w, 'REPLACE')
+
+
+def _on_x_centerline(mesh, vert_index, threshold=1e-4):
+    return abs(mesh.vertices[vert_index].co.x) <= threshold
+
+
+def _build_x_mirror_pairs(mesh, threshold=1e-4):
+    """Return {src_index: dst_index} by mirroring vertices across local X.
+    Center verts map to themselves (same index); callers must handle those."""
+    from mathutils.kdtree import KDTree
+    kd = KDTree(len(mesh.vertices))
+    for v in mesh.vertices:
+        kd.insert(v.co, v.index)
+    kd.balance()
+    pairs = {}
+    for v in mesh.vertices:
+        co_m = mathutils.Vector((-v.co.x, v.co.y, v.co.z))
+        _, dst, dist = kd.find(co_m)
+        if dist <= threshold:
+            pairs[v.index] = dst
+    return pairs
+
+
+def _mirror_weights_direct(obj, source_vg, dest_vg, dest_sign, threshold=1e-4, paired=False):
+    """Position-based X-mirror across local X.
+
+    Same group (paired=False): one-way copy — read source hemisphere only,
+    write mirrored values into the destination hemisphere of dest_vg.
+
+    Paired bones (paired=True): every weighted vertex in source_vg is written
+    to its mirror partner in dest_vg (full L↔R transfer, both sides).
+    """
+    mesh = obj.data
+    snapshot = _vg_weights_snapshot(obj, source_vg)
+    pairs = _build_x_mirror_pairs(mesh, threshold)
+
+    if paired:
+        dest_vg.remove([v.index for v in mesh.vertices])
+        for src_vi, dst_vi in pairs.items():
+            if dst_vi == src_vi and not _on_x_centerline(mesh, src_vi, threshold):
+                continue
+            w = snapshot.get(src_vi, 0.0)
+            if w > 0.0:
+                dest_vg.add([dst_vi], w, 'REPLACE')
+        for v in mesh.vertices:
+            if _on_x_centerline(mesh, v.index, threshold):
+                w = snapshot.get(v.index, 0.0)
+                if w > 0.0:
+                    dest_vg.add([v.index], w, 'REPLACE')
+        return
+
+    writes = {}
+    for src_vi, dst_vi in pairs.items():
+        if dst_vi == src_vi:
+            if _on_x_centerline(mesh, src_vi, threshold):
+                writes[src_vi] = snapshot.get(src_vi, 0.0)
             continue
-        weights = v[dvert]
-        if vg_index in weights:
-            del weights[vg_index]
+        if mesh.vertices[src_vi].co.x * dest_sign >= 0:
+            continue
+        writes[dst_vi] = snapshot.get(src_vi, 0.0)
+
+    for v in mesh.vertices:
+        if _on_x_centerline(mesh, v.index, threshold) and v.index not in writes:
+            writes[v.index] = snapshot.get(v.index, 0.0)
+
+    def _dest_hemisphere(v):
+        return v.co.x * dest_sign > 1e-5 or _on_x_centerline(mesh, v.index, threshold)
+
+    dest_vg.remove([v.index for v in mesh.vertices if _dest_hemisphere(v)])
+    for dst_vi, w in writes.items():
+        if w > 0.0:
+            dest_vg.add([dst_vi], w, 'REPLACE')
+
+
+def _mirror_weights_topology(obj, source_vg, dest_vg, dest_sign, paired=False, threshold=1e-4):
+    """Topology mirror using Blender's built-in operator as the pairing engine.
+
+    Same group: select destination hemisphere only → one-way copy.
+
+    Paired bones: select all verts so the operator swaps weights across the
+    mirror (full mirrored field on source_vg), copy that into dest_vg, then
+    restore source_vg from a snapshot.
+    """
+    mesh = obj.data
+    same_group = source_vg == dest_vg
+    snapshot = _vg_weights_snapshot(obj, source_vg)
+
+    for v in mesh.vertices:
+        if paired:
+            v.select = True
+        else:
+            v.select = (
+                v.co.x * dest_sign > 1e-5
+                or _on_x_centerline(mesh, v.index, threshold)
+            )
+
+    orig_mask = mesh.use_paint_mask_vertex
+    mesh.use_paint_mask_vertex = True
+
+    bpy.ops.object.vertex_group_mirror(
+        mirror_weights=True,
+        flip_group_names=False,
+        all_groups=False,
+        use_topology=True,
+    )
+
+    mesh.use_paint_mask_vertex = orig_mask
+
+    def _dest_hemisphere_vi(vi):
+        v = mesh.vertices[vi]
+        return v.co.x * dest_sign > 1e-5 or _on_x_centerline(mesh, vi, threshold)
+
+    if paired:
+        mirrored = _vg_weights_snapshot(obj, source_vg)
+        dest_vg.remove([v.index for v in mesh.vertices])
+        for vi, w in mirrored.items():
+            if w > 0.0:
+                dest_vg.add([vi], w, 'REPLACE')
+        _restore_vg_from_snapshot(source_vg, mesh, snapshot)
+    elif not same_group:
+        mirrored = _vg_weights_snapshot(obj, source_vg)
+        dest_vg.remove([v.index for v in mesh.vertices if _dest_hemisphere_vi(v.index)])
+        for vi, w in mirrored.items():
+            if w > 0.0 and _dest_hemisphere_vi(vi):
+                dest_vg.add([vi], w, 'REPLACE')
+        _restore_vg_from_snapshot(source_vg, mesh, snapshot)
 
 
 def _add_vgroup(obj, name, vert_ids, weight=1.0):
@@ -1355,10 +1479,6 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         _finish_status(self)
 
     def _execute_weight_paint(self, context):
-        if self.axis != 'X':
-            self.report({'WARNING'}, "Weight mirror only supports the X axis in Blender")
-            return {'CANCELLED'}
-
         obj = context.active_object
         mesh = obj.data
 
@@ -1367,47 +1487,37 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             return {'CANCELLED'}
 
         active_vg = obj.vertex_groups.active
-        paired_name = None
-        mirror_to_paired = False
+
         if self.mirror_paired_bones:
             paired_name = _paired_vertex_group_name(active_vg.name)
-            mirror_to_paired = bool(paired_name and obj.vertex_groups.get(paired_name))
+            if not paired_name:
+                self.report({'WARNING'}, f"'{active_vg.name}' has no .L/.R counterpart")
+                return {'CANCELLED'}
+            if not obj.vertex_groups.get(paired_name):
+                self.report({'WARNING'}, f"Paired group '{paired_name}' not found on object")
+                return {'CANCELLED'}
+            source_vg = active_vg
+            dest_vg = obj.vertex_groups[paired_name]
+        else:
+            source_vg = dest_vg = active_vg
 
         flick_dir, _ = self.flick_direction.split('_')
-        sign = 1.0 if flick_dir == 'POSITIVE' else -1.0
-        orig_mask = mesh.use_paint_mask_vertex
+        dest_sign = 1.0 if flick_dir == 'POSITIVE' else -1.0
 
-        bpy.ops.object.mode_set(mode='EDIT')
-        bm = bmesh.from_edit_mesh(mesh)
-        bm.select_mode = {'VERT'}
+        paired = self.mirror_paired_bones
 
-        for v in bm.verts:
-            v.select = (v.co.x * sign) > 1e-5
+        if self.use_topology:
+            _mirror_weights_topology(
+                obj, source_vg, dest_vg, dest_sign,
+                paired=paired, threshold=self.threshold,
+            )
+        else:
+            _mirror_weights_direct(
+                obj, source_vg, dest_vg, dest_sign,
+                threshold=self.threshold, paired=paired,
+            )
 
-        bm.select_flush_mode()
-
-        if mirror_to_paired:
-            paired_vg = obj.vertex_groups[paired_name]
-            dvert = bm.verts.layers.deform.verify()
-            # Blender mirrors in-place when the active group is weighted on both sides.
-            # Clear the paired group and the active group on the destination side so
-            # vertex_group_mirror always copies source -> paired.
-            _deform_clear_vgroup(bm, dvert, paired_vg.index)
-            _deform_remove_vgroup_selected(bm, dvert, active_vg.index)
-
-        bmesh.update_edit_mesh(mesh)
-
-        bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
-        mesh.use_paint_mask_vertex = True
-
-        bpy.ops.object.vertex_group_mirror(
-            mirror_weights=True,
-            flip_group_names=mirror_to_paired,
-            all_groups=False,
-            use_topology=self.use_topology,
-        )
-
-        mesh.use_paint_mask_vertex = orig_mask
+        mesh.update_tag()
         return {'FINISHED'}
 
     def _execute_edit_mesh(self, context):
