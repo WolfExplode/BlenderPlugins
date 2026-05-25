@@ -441,6 +441,33 @@ def _apply_vg_snapshot(vg, mesh, snapshot):
             vg.add([vi], w, 'REPLACE')
 
 
+def _apply_vg_snapshot_to_verts(vg, snapshot, vert_indices):
+    """Restore snapshot weights on vert_indices only (0 = remove)."""
+    if not vert_indices:
+        return
+    vg.remove(list(vert_indices))
+    for vi in vert_indices:
+        w = snapshot.get(vi, 0.0)
+        if w > 0.0:
+            vg.add([vi], w, 'REPLACE')
+
+
+def _source_side_vert_indices(mesh, symdir, axis, threshold):
+    """Vert indices on the symmetrize source side (+ center), matching edit-mode sides."""
+    ai = {'X': 0, 'Y': 1, 'Z': 2}[axis]
+    indices = []
+    for v in mesh.vertices:
+        c = v.co[ai]
+        if -threshold < c < threshold:
+            indices.append(v.index)
+        elif symdir == 'POSITIVE':
+            if c > 0:
+                indices.append(v.index)
+        elif c < 0:
+            indices.append(v.index)
+    return indices
+
+
 def _vertex_group_mirror_op(use_topology):
     """Same as Object Data > Vertex Groups specials menu mirror entries."""
     bpy.ops.object.vertex_group_mirror(
@@ -462,6 +489,21 @@ def _mirror_vg_to_paired(obj, source_vg, dest_vg, use_topology):
         mirrored = _vg_weights_snapshot(obj, source_vg)
         _apply_vg_snapshot(source_vg, mesh, before)
         _apply_vg_snapshot(dest_vg, mesh, mirrored)
+    finally:
+        if 0 <= orig_active < len(obj.vertex_groups):
+            obj.vertex_groups.active_index = orig_active
+
+
+def _mirror_vg_directional(obj, vg, use_topology, symdir, axis, threshold):
+    """Mirror active group; keep pre-mirror weights on source side (edit-mode symmetrize style)."""
+    mesh = obj.data
+    orig_active = obj.vertex_groups.active_index
+    obj.vertex_groups.active_index = vg.index
+    try:
+        before = _vg_weights_snapshot(obj, vg)
+        _vertex_group_mirror_op(use_topology)
+        source_verts = _source_side_vert_indices(mesh, symdir, axis, threshold)
+        _apply_vg_snapshot_to_verts(vg, before, source_verts)
     finally:
         if 0 <= orig_active < len(obj.vertex_groups):
             obj.vertex_groups.active_index = orig_active
@@ -1461,7 +1503,12 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
                 mesh.update_tag()
                 return {'FINISHED'}
 
-        _vertex_group_mirror_op(self.use_topology)
+        if self.flick_direction:
+            _mirror_vg_directional(
+                obj, active_vg, self.use_topology, self.direction, self.axis, self.threshold,
+            )
+        else:
+            _vertex_group_mirror_op(self.use_topology)
 
         mesh.update_tag()
         return {'FINISHED'}
