@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Symmetrize Plus",
     "author": "WXP",
-    "version": (0, 1, 4),
+    "version": (0, 1, 5),
     "blender": (4, 0, 0),
     "location": "Edit Mesh / Weight Paint: Alt+X",
     "description": "MESHmachine-style symmetrize with flick gizmo (mesh + weight paint)",
@@ -14,7 +14,6 @@ import bpy
 import bmesh
 import blf
 import gpu
-import mathutils
 from bl_ui.space_statusbar import STATUSBAR_HT_header as statusbar
 from bpy.props import (
     BoolProperty,
@@ -157,22 +156,21 @@ def _draw_symmetrize_status(op):
     def draw(self, context):
         layout = self.layout
         row = layout.row(align=True)
-        row.label(text='Symmetrize')
-
-        _draw_status_item(row, key='MOVE', text='Pick Axis')
-        _draw_status_item(row, key='LMB', text='Finish')
-        _draw_status_item(row, key='RMB', text='Cancel')
 
         if op.weight_paint:
+            row.label(text='Mirror Weights')
+            _draw_status_item(row, key='MOVE', text='Pick Axis')
+            _draw_status_item(row, key='LMB', text='Mirror')
+            _draw_status_item(row, key='RMB', text='Cancel')
             _draw_status_item(row, active=op.use_topology, key='T', text='Topology', gap=10)
             if op.has_vertex_groups:
                 _draw_status_item(row, active=op.mirror_paired_bones, key='B', text='Mirror to Paired Bone', gap=2)
-            sp = op.active.symmetrize_plus
-            _draw_status_item(row, key=['CTRL', 'SHIFT'], text='Axis Locks', gap=4)
-            _draw_status_item(row, active=sp.lock_x, key='X', text='', gap=1)
-            _draw_status_item(row, active=sp.lock_y, key='Y', text='', gap=1)
-            _draw_status_item(row, active=sp.lock_z, key='Z', text='', gap=1)
             return
+
+        row.label(text='Symmetrize')
+        _draw_status_item(row, key='MOVE', text='Pick Axis')
+        _draw_status_item(row, key='LMB', text='Finish')
+        _draw_status_item(row, key='RMB', text='Cancel')
 
         _draw_status_item(row, active=op.partial, key='S', text='Selected only', gap=10)
         _draw_status_item(row, active=op.remove and not (op.is_shift or op.is_ctrl), key='X', text='Remove', gap=2)
@@ -383,17 +381,50 @@ def _loop_index_update(bm):
             lidx += 1
 
 
+_LATERAL_VG_SUFFIXES = (
+    ('.L', '.R'), ('.R', '.L'),
+    ('_L', '_R'), ('_R', '_L'),
+    ('.l', '.r'), ('.r', '.l'),
+    ('_l', '_r'), ('_r', '_l'),
+)
+
+
 def _paired_vertex_group_name(name):
     """Return the L/R counterpart name (Blender-style .L/.R suffix)."""
-    for left, right in (
-        ('.L', '.R'), ('.R', '.L'),
-        ('_L', '_R'), ('_R', '_L'),
-        ('.l', '.r'), ('.r', '.l'),
-        ('_l', '_r'), ('_r', '_l'),
-    ):
+    for left, right in _LATERAL_VG_SUFFIXES:
         if name.endswith(left):
             return name[:-len(left)] + right
     return None
+
+
+def _vg_lateral_side(name):
+    """Return 'L' or 'R' if name uses a lateral suffix, else None."""
+    for left, right in _LATERAL_VG_SUFFIXES:
+        if name.endswith(left):
+            return 'L'
+        if name.endswith(right):
+            return 'R'
+    return None
+
+
+def _source_dest_vg_for_flick(vg_a, vg_b, flick_direction):
+    """Copy toward flick: +X flick writes onto +X-side group from -X-side (.L is +X, .R is -X)."""
+    flick_dir, _ = flick_direction.split('_', 1)
+    toward_positive = flick_dir == 'POSITIVE'
+
+    side_a = _vg_lateral_side(vg_a.name)
+    side_b = _vg_lateral_side(vg_b.name)
+
+    if side_a == 'L' and side_b == 'R':
+        pos_vg, neg_vg = vg_a, vg_b
+    elif side_a == 'R' and side_b == 'L':
+        pos_vg, neg_vg = vg_b, vg_a
+    else:
+        return (vg_a, vg_b) if toward_positive else (vg_b, vg_a)
+
+    if toward_positive:
+        return neg_vg, pos_vg
+    return pos_vg, neg_vg
 
 
 def _vg_weights_snapshot(obj, vg):
@@ -402,138 +433,38 @@ def _vg_weights_snapshot(obj, vg):
     return {v.index: g.weight for v in obj.data.vertices for g in v.groups if g.group == idx}
 
 
-def _restore_vg_from_snapshot(vg, mesh, snapshot):
-    """Restore a vertex group to a previously snapshotted state."""
+def _apply_vg_snapshot(vg, mesh, snapshot):
+    """Replace all weights in vg with those from snapshot."""
     vg.remove([v.index for v in mesh.vertices])
     for vi, w in snapshot.items():
         if w > 0.0:
             vg.add([vi], w, 'REPLACE')
 
 
-def _on_x_centerline(mesh, vert_index, threshold=1e-4):
-    return abs(mesh.vertices[vert_index].co.x) <= threshold
-
-
-def _build_x_mirror_pairs(mesh, threshold=1e-4):
-    """Return {src_index: dst_index} by mirroring vertices across local X.
-    Center verts map to themselves (same index); callers must handle those."""
-    from mathutils.kdtree import KDTree
-    kd = KDTree(len(mesh.vertices))
-    for v in mesh.vertices:
-        kd.insert(v.co, v.index)
-    kd.balance()
-    pairs = {}
-    for v in mesh.vertices:
-        co_m = mathutils.Vector((-v.co.x, v.co.y, v.co.z))
-        _, dst, dist = kd.find(co_m)
-        if dist <= threshold:
-            pairs[v.index] = dst
-    return pairs
-
-
-def _mirror_weights_direct(obj, source_vg, dest_vg, dest_sign, threshold=1e-4, paired=False):
-    """Position-based X-mirror across local X.
-
-    Same group (paired=False): one-way copy — read source hemisphere only,
-    write mirrored values into the destination hemisphere of dest_vg.
-
-    Paired bones (paired=True): every weighted vertex in source_vg is written
-    to its mirror partner in dest_vg (full L↔R transfer, both sides).
-    """
-    mesh = obj.data
-    snapshot = _vg_weights_snapshot(obj, source_vg)
-    pairs = _build_x_mirror_pairs(mesh, threshold)
-
-    if paired:
-        dest_vg.remove([v.index for v in mesh.vertices])
-        for src_vi, dst_vi in pairs.items():
-            if dst_vi == src_vi and not _on_x_centerline(mesh, src_vi, threshold):
-                continue
-            w = snapshot.get(src_vi, 0.0)
-            if w > 0.0:
-                dest_vg.add([dst_vi], w, 'REPLACE')
-        for v in mesh.vertices:
-            if _on_x_centerline(mesh, v.index, threshold):
-                w = snapshot.get(v.index, 0.0)
-                if w > 0.0:
-                    dest_vg.add([v.index], w, 'REPLACE')
-        return
-
-    writes = {}
-    for src_vi, dst_vi in pairs.items():
-        if dst_vi == src_vi:
-            if _on_x_centerline(mesh, src_vi, threshold):
-                writes[src_vi] = snapshot.get(src_vi, 0.0)
-            continue
-        if mesh.vertices[src_vi].co.x * dest_sign >= 0:
-            continue
-        writes[dst_vi] = snapshot.get(src_vi, 0.0)
-
-    for v in mesh.vertices:
-        if _on_x_centerline(mesh, v.index, threshold) and v.index not in writes:
-            writes[v.index] = snapshot.get(v.index, 0.0)
-
-    def _dest_hemisphere(v):
-        return v.co.x * dest_sign > 1e-5 or _on_x_centerline(mesh, v.index, threshold)
-
-    dest_vg.remove([v.index for v in mesh.vertices if _dest_hemisphere(v)])
-    for dst_vi, w in writes.items():
-        if w > 0.0:
-            dest_vg.add([dst_vi], w, 'REPLACE')
-
-
-def _mirror_weights_topology(obj, source_vg, dest_vg, dest_sign, paired=False, threshold=1e-4):
-    """Topology mirror using Blender's built-in operator as the pairing engine.
-
-    Same group: select destination hemisphere only → one-way copy.
-
-    Paired bones: select all verts so the operator swaps weights across the
-    mirror (full mirrored field on source_vg), copy that into dest_vg, then
-    restore source_vg from a snapshot.
-    """
-    mesh = obj.data
-    same_group = source_vg == dest_vg
-    snapshot = _vg_weights_snapshot(obj, source_vg)
-
-    for v in mesh.vertices:
-        if paired:
-            v.select = True
-        else:
-            v.select = (
-                v.co.x * dest_sign > 1e-5
-                or _on_x_centerline(mesh, v.index, threshold)
-            )
-
-    orig_mask = mesh.use_paint_mask_vertex
-    mesh.use_paint_mask_vertex = True
-
+def _vertex_group_mirror_op(use_topology):
+    """Same as Object Data > Vertex Groups specials menu mirror entries."""
     bpy.ops.object.vertex_group_mirror(
         mirror_weights=True,
         flip_group_names=False,
         all_groups=False,
-        use_topology=True,
+        use_topology=use_topology,
     )
 
-    mesh.use_paint_mask_vertex = orig_mask
 
-    def _dest_hemisphere_vi(vi):
-        v = mesh.vertices[vi]
-        return v.co.x * dest_sign > 1e-5 or _on_x_centerline(mesh, vi, threshold)
-
-    if paired:
+def _mirror_vg_to_paired(obj, source_vg, dest_vg, use_topology):
+    """Mirror source group via Blender op, restore source, write result onto dest."""
+    mesh = obj.data
+    orig_active = obj.vertex_groups.active_index
+    obj.vertex_groups.active_index = source_vg.index
+    try:
+        before = _vg_weights_snapshot(obj, source_vg)
+        _vertex_group_mirror_op(use_topology)
         mirrored = _vg_weights_snapshot(obj, source_vg)
-        dest_vg.remove([v.index for v in mesh.vertices])
-        for vi, w in mirrored.items():
-            if w > 0.0:
-                dest_vg.add([vi], w, 'REPLACE')
-        _restore_vg_from_snapshot(source_vg, mesh, snapshot)
-    elif not same_group:
-        mirrored = _vg_weights_snapshot(obj, source_vg)
-        dest_vg.remove([v.index for v in mesh.vertices if _dest_hemisphere_vi(v.index)])
-        for vi, w in mirrored.items():
-            if w > 0.0 and _dest_hemisphere_vi(vi):
-                dest_vg.add([vi], w, 'REPLACE')
-        _restore_vg_from_snapshot(source_vg, mesh, snapshot)
+        _apply_vg_snapshot(source_vg, mesh, before)
+        _apply_vg_snapshot(dest_vg, mesh, mirrored)
+    finally:
+        if 0 <= orig_active < len(obj.vertex_groups):
+            obj.vertex_groups.active_index = orig_active
 
 
 def _add_vgroup(obj, name, vert_ids, weight=1.0):
@@ -576,7 +507,7 @@ def _normal_clear(obj, limit=False):
     for v in verts:
         for loop in v.link_loops:
             if not limit or loop.face in faces:
-                loop_normals[loop.index] = mathutils.Vector()
+                loop_normals[loop.index] = Vector()
 
     mesh.normals_split_custom_set(loop_normals)
 
@@ -612,7 +543,7 @@ def _normal_transfer_from_obj(active, source, vert_ids, clear_sharps=True):
 
 # --- MESHmachine symmetrize core (ported) -------------------------------------
 
-def symmetrize_mesh(obj, data, debug=False):
+def symmetrize_mesh(obj, data):
     direction = data['direction']
     threshold = data['threshold']
     partial = data['partial']
@@ -969,6 +900,12 @@ def _locked_axes(obj):
     return axes
 
 
+def _flick_axes(obj, weight_paint=False):
+    if weight_paint:
+        return ['X']
+    return _locked_axes(obj)
+
+
 def _ensure_default_lock(obj):
     sp = obj.symmetrize_plus
     if not any((sp.lock_x, sp.lock_y, sp.lock_z)):
@@ -1059,7 +996,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
     """MESHmachine-style symmetrize flick gizmo"""
     bl_idname = "mesh.symmetrize_plus_flick"
     bl_label = "Symmetrize Plus"
-    bl_description = "Symmetrize a mesh incl. custom normals (MESHmachine-style)"
+    bl_description = "Symmetrize mesh or mirror vertex group weights (MESHmachine-style flick)"
     bl_options = {'REGISTER', 'UNDO'}
 
     has_custom_normals: BoolProperty(default=False)
@@ -1091,7 +1028,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
     use_topology: BoolProperty(
         name="Topology Mirror",
         default=False,
-        description="Topology-based mirror for weight paint vertex_group_mirror",
+        description="Use Mirror Vertex Group (Topology); off uses Mirror Vertex Group",
     )
     mirror_paired_bones: BoolProperty(
         name="Mirror to Paired Bone",
@@ -1116,7 +1053,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             column.prop(self, "use_topology", text="Topology Mirror", toggle=True)
             if self.has_vertex_groups:
                 column.separator()
-                column.prop(self, "mirror_paired_bones", text="Mirror to Paired Bone (.L/.R)", toggle=True)
+                column.prop(self, "mirror_paired_bones", toggle=True)
             return
 
         row = column.row(align=True)
@@ -1174,9 +1111,6 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         self.has_vertex_groups = bool(self.active.vertex_groups)
         self.has_uvs = bool(self.active.data.uv_layers)
 
-        if self.weight_paint and self.has_vertex_groups:
-            self.mirror_vertex_groups = True
-
         if self.remove_redundant_center and _is_hyper_bevel(self.active):
             self.remove_redundant_center = False
 
@@ -1215,6 +1149,11 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         _ensure_default_lock(self.active)
         self.init_locked_axes = _locked_axes(self.active)
+        if self.weight_paint:
+            sp = self.active.symmetrize_plus
+            sp.lock_x = True
+            sp.lock_y = False
+            sp.lock_z = False
 
         _init_status(self, _draw_symmetrize_status(self))
         self.active.select_set(True)
@@ -1231,7 +1170,6 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             return
 
         scale = _hud_scale(context)
-        axes = _locked_axes(self.active)
         p0 = self.init_mouse
 
         _draw_line_2d(p0, p0 + self.flick_vector, WHITE, width=1, alpha=0.99)
@@ -1243,44 +1181,49 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         top_y = p0.y + self.flick_distance
         bottom_y = p0.y - self.flick_distance + (15 * scale)
 
-        if not self.weight_paint and self.partial:
-            _draw_label(context, 'Selected', (p0.x, top_y), center=True, color=color, alpha=1.0)
-            top_y -= 15 * scale
-
-        if not self.weight_paint:
-            title = 'Remove' if self.remove else 'Symmetrize'
-            _draw_label(context, title, (p0.x, top_y), center=True, color=color, alpha=1.0 if self.remove else 0.8)
-            top_y -= 12 * scale
-
-        _draw_label(
-            context,
-            " ".join(axes) if axes else "None",
-            (p0.x, top_y),
-            center=True,
-            size=10,
-            color=WHITE if axes else RED,
-            alpha=0.5 if axes else 1.0,
-        )
-
-        flick_title = self.flick_direction.replace('_', ' ').title() if self.flick_direction else "None"
-        _draw_label(context, flick_title, (p0.x, bottom_y), center=True, alpha=0.4)
-
         if self.weight_paint:
-            bottom_y -= 15 * scale
-            topo = 'Topology' if self.use_topology else 'Position'
+            _draw_label(context, 'Mirror Weights', (p0.x, top_y), center=True, color=WHITE, alpha=0.8)
+            top_y -= 12 * scale
+            topo = 'Topology' if self.use_topology else 'Standard'
             tcolor, talpha = (BLUE, 1.0) if self.use_topology else (WHITE, 0.2)
-            _draw_label(context, f"Weight Mirror ({topo})", (p0.x, bottom_y), center=True, color=tcolor, alpha=talpha)
+            _draw_label(context, topo, (p0.x, top_y), center=True, color=tcolor, alpha=talpha)
             if self.has_vertex_groups:
-                bottom_y -= 15 * scale
+                top_y -= 15 * scale
                 active_vg = self.active.vertex_groups.active
                 paired_name = _paired_vertex_group_name(active_vg.name) if active_vg else None
                 has_pair = bool(
                     paired_name and self.active.vertex_groups.get(paired_name)
                 )
                 mirror_to_paired = self.mirror_paired_bones and has_pair
-                paired = 'Paired Bone (.L/.R)' if mirror_to_paired else 'Same Group'
+                paired = 'Paired Bone' if mirror_to_paired else 'Active Group'
                 pcolor, palpha = (YELLOW, 1.0) if mirror_to_paired else (WHITE, 0.2)
-                _draw_label(context, paired, (p0.x, bottom_y), center=True, color=pcolor, alpha=palpha)
+                _draw_label(context, paired, (p0.x, top_y), center=True, color=pcolor, alpha=palpha)
+                top_y -= 15 * scale
+        else:
+            if self.partial:
+                _draw_label(context, 'Selected', (p0.x, top_y), center=True, color=color, alpha=1.0)
+                top_y -= 15 * scale
+
+            title = 'Remove' if self.remove else 'Symmetrize'
+            _draw_label(context, title, (p0.x, top_y), center=True, color=color, alpha=1.0 if self.remove else 0.8)
+            top_y -= 12 * scale
+
+        if not self.weight_paint:
+            axes = _locked_axes(self.active)
+            _draw_label(
+                context,
+                " ".join(axes) if axes else "None",
+                (p0.x, top_y),
+                center=True,
+                size=10,
+                color=WHITE if axes else RED,
+                alpha=0.5 if axes else 1.0,
+            )
+
+        flick_title = self.flick_direction.replace('_', ' ').title() if self.flick_direction else "None"
+        _draw_label(context, flick_title, (p0.x, bottom_y), center=True, alpha=0.4)
+
+        if self.weight_paint or self.remove:
             return
 
         if not self.remove:
@@ -1316,7 +1259,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         if context.area != self.area:
             return
 
-        axes = _locked_axes(self.active)
+        axes = _flick_axes(self.active, self.weight_paint)
         if not axes:
             return
 
@@ -1332,9 +1275,9 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
                     alpha=0.99 if is_positive else 0.3,
                 )
 
-            if self.flick_direction:
-                tip = self.init_mouse_3d + self.axes[self.flick_direction] * self.zoom / 2 * 1.2
-                _draw_point_3d(tip, color=WHITE, size=5, alpha=0.8)
+        if self.flick_direction:
+            tip = self.init_mouse_3d + self.axes[self.flick_direction] * self.zoom / 2 * 1.2
+            _draw_point_3d(tip, color=WHITE, size=5, alpha=0.8)
 
     def modal(self, context, event):
         context.area.tag_redraw()
@@ -1343,18 +1286,22 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         self.is_shift = event.shift
 
         sp = self.active.symmetrize_plus
-        if not self.is_ctrl and not self.is_shift and not any((sp.lock_x, sp.lock_y, sp.lock_z)):
+        if self.weight_paint:
+            sp.lock_x = True
+            sp.lock_y = False
+            sp.lock_z = False
+        elif not self.is_ctrl and not self.is_shift and not any((sp.lock_x, sp.lock_y, sp.lock_z)):
             sp.lock_x = True
 
-        can_finish = bool(_locked_axes(self.active))
+        can_finish = self.weight_paint or bool(_locked_axes(self.active))
 
-        events = ['MOUSEMOVE', 'X', 'Y', 'Z']
+        events = ['MOUSEMOVE']
         if self.weight_paint:
             events.append('T')
             if self.has_vertex_groups:
                 events.append('B')
         else:
-            events.extend(['S', 'P'])
+            events.extend(['X', 'Y', 'Z', 'S', 'P'])
             if not self.remove:
                 if self.has_uvs:
                     events.append('D')
@@ -1383,7 +1330,12 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
                 self.finish()
                 return self.execute(context)
 
-            if (self.is_shift or self.is_ctrl) and event.type in {'X', 'Y', 'Z'} and event.value == 'PRESS':
+            if (
+                not self.weight_paint
+                and (self.is_shift or self.is_ctrl)
+                and event.type in {'X', 'Y', 'Z'}
+                and event.value == 'PRESS'
+            ):
                 if self.is_ctrl:
                     sp.lock_x = event.type == 'X'
                     sp.lock_y = event.type == 'Y'
@@ -1436,8 +1388,9 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         elif can_finish and event.type in {'LEFTMOUSE', 'SPACE'} and event.value == 'PRESS':
             self.finish()
-            if self.flick_direction:
-                self._apply_flick_direction()
+            if self.weight_paint or self.flick_direction:
+                if self.flick_direction:
+                    self._apply_flick_direction()
                 return self.execute(context)
             return {'CANCELLED'}
 
@@ -1455,7 +1408,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         if not self.flick_vector.length:
             self.flick_direction = ""
             return
-        direction = _get_flick_direction(self, context, _locked_axes(self.active))
+        direction = _get_flick_direction(self, context, _flick_axes(self.active, self.weight_paint))
         if direction:
             self.flick_direction = direction
             self._apply_flick_direction()
@@ -1487,35 +1440,28 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
             return {'CANCELLED'}
 
         active_vg = obj.vertex_groups.active
+        paired_name = _paired_vertex_group_name(active_vg.name)
+        paired_vg = obj.vertex_groups.get(paired_name) if paired_name else None
 
         if self.mirror_paired_bones:
-            paired_name = _paired_vertex_group_name(active_vg.name)
-            if not paired_name:
-                self.report({'WARNING'}, f"'{active_vg.name}' has no .L/.R counterpart")
+            if paired_name and not paired_vg:
+                self.report(
+                    {'WARNING'},
+                    "failed to find opposite bone pairing, nothing happened",
+                )
                 return {'CANCELLED'}
-            if not obj.vertex_groups.get(paired_name):
-                self.report({'WARNING'}, f"Paired group '{paired_name}' not found on object")
-                return {'CANCELLED'}
-            source_vg = active_vg
-            dest_vg = obj.vertex_groups[paired_name]
-        else:
-            source_vg = dest_vg = active_vg
+            if paired_vg:
+                if self.flick_direction:
+                    source_vg, dest_vg = _source_dest_vg_for_flick(
+                        active_vg, paired_vg, self.flick_direction,
+                    )
+                else:
+                    source_vg, dest_vg = active_vg, paired_vg
+                _mirror_vg_to_paired(obj, source_vg, dest_vg, self.use_topology)
+                mesh.update_tag()
+                return {'FINISHED'}
 
-        flick_dir, _ = self.flick_direction.split('_')
-        dest_sign = 1.0 if flick_dir == 'POSITIVE' else -1.0
-
-        paired = self.mirror_paired_bones
-
-        if self.use_topology:
-            _mirror_weights_topology(
-                obj, source_vg, dest_vg, dest_sign,
-                paired=paired, threshold=self.threshold,
-            )
-        else:
-            _mirror_weights_direct(
-                obj, source_vg, dest_vg, dest_sign,
-                threshold=self.threshold, paired=paired,
-            )
+        _vertex_group_mirror_op(self.use_topology)
 
         mesh.update_tag()
         return {'FINISHED'}
