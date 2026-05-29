@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Symmetrize Plus",
     "author": "WXP",
-    "version": (0, 1, 5),
+    "version": (0, 1, 7),
     "blender": (4, 0, 0),
-    "location": "Edit Mesh / Weight Paint: Alt+X",
-    "description": "MESHmachine-style symmetrize with flick gizmo (mesh + weight paint)",
+    "location": "Edit Mesh / Sculpt / Weight Paint: hotkey is Alt+X",
+    "description": "symmetrize with flick gizmo",
     "category": "Mesh",
 }
 
@@ -35,8 +35,8 @@ from mathutils import Vector
 
 addon_keymaps = []
 
-SUPPORTED_MODES = {'EDIT_MESH', 'PAINT_WEIGHT'}
-KEYMAP_NAMES = ('Mesh', 'Weight Paint')
+SUPPORTED_MODES = {'EDIT_MESH', 'PAINT_WEIGHT', 'SCULPT'}
+KEYMAP_NAMES = ('Mesh', 'Sculpt', 'Weight Paint')
 
 AXIS_ITEMS = [
     ('X', "X", ""),
@@ -167,6 +167,15 @@ def _draw_symmetrize_status(op):
                 _draw_status_item(row, active=op.mirror_paired_bones, key='B', text='Mirror to Paired Bone', gap=2)
             return
 
+        if op.sculpt_mode:
+            row.label(text='Shape Keys')
+            _draw_status_item(row, key='MOVE', text='Pick Axis')
+            _draw_status_item(row, key='LMB', text='Symmetrize')
+            _draw_status_item(row, key='RMB', text='Cancel')
+            if op.can_shape_keys:
+                _draw_status_item(row, active=op.shape_keys, key='K', text='Shape Keys', gap=10)
+            return
+
         row.label(text='Symmetrize')
         _draw_status_item(row, key='MOVE', text='Pick Axis')
         _draw_status_item(row, key='LMB', text='Finish')
@@ -175,7 +184,10 @@ def _draw_symmetrize_status(op):
         _draw_status_item(row, active=op.partial, key='S', text='Selected only', gap=10)
         _draw_status_item(row, active=op.remove and not (op.is_shift or op.is_ctrl), key='X', text='Remove', gap=2)
 
-        if not op.remove:
+        if op.can_shape_keys:
+            _draw_status_item(row, active=op.shape_keys, key='K', text='Shape Keys', gap=10)
+
+        if not op.remove and not op.shape_keys:
             row.separator(factor=2)
             if op.has_uvs:
                 _draw_status_item(row, active=op.offset_uvs, key='D', text='Offset UVs', gap=2)
@@ -942,8 +954,8 @@ def _locked_axes(obj):
     return axes
 
 
-def _flick_axes(obj, weight_paint=False):
-    if weight_paint:
+def _flick_axes(obj, weight_paint=False, sculpt_mode=False):
+    if weight_paint or sculpt_mode:
         return ['X']
     return _locked_axes(obj)
 
@@ -952,6 +964,20 @@ def _ensure_default_lock(obj):
     sp = obj.symmetrize_plus
     if not any((sp.lock_x, sp.lock_y, sp.lock_z)):
         sp.lock_x = sp.lock_y = sp.lock_z = True
+
+
+def _mio3_shape_keys_available():
+    return hasattr(bpy.ops.mesh, "mio3sk_symmetrize")
+
+
+def _can_symmetrize_shape_keys(obj):
+    sk = getattr(obj.data, "shape_keys", None)
+    if not sk:
+        return False
+    active_kb = obj.active_shape_key
+    if not active_kb:
+        return False
+    return active_kb != sk.reference_key
 
 
 def _poll(context):
@@ -1077,6 +1103,14 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         default=False,
         description="Mirror weights from the active .L/.R vertex group into its paired group (e.g. Bone.L → Bone.R)",
     )
+    shape_keys: BoolProperty(
+        name="Shape Keys",
+        default=False,
+        description="Symmetrize the active shape key via mio3_shape_keys (requires that addon)",
+    )
+
+    can_shape_keys: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
+    sculpt_mode: BoolProperty(default=False, options={'HIDDEN', 'SKIP_SAVE'})
 
     @classmethod
     def poll(cls, context):
@@ -1102,9 +1136,13 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         row.prop(self, 'partial', text='Selected' if self.partial else 'All', toggle=True)
         row.prop(self, 'remove', text='Remove' if self.remove else 'Symmetrize', toggle=True)
 
+        if self.can_shape_keys:
+            column.separator()
+            column.prop(self, "shape_keys", toggle=True)
+
         is_normal_mirror = not self.partial and self.has_custom_normals and self.mirror_custom_normals
 
-        if not self.remove:
+        if not self.remove and not self.shape_keys:
             if self.has_uvs:
                 column.separator()
                 column.prop(self, "offset_uvs", text="Offset UVs", toggle=True)
@@ -1143,8 +1181,20 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
     def invoke(self, context, event):
         self.active = context.active_object
         self.weight_paint = context.mode == 'PAINT_WEIGHT'
+        self.sculpt_mode = context.mode == 'SCULPT'
 
-        if self.partial and not self.weight_paint:
+        if self.sculpt_mode:
+            if not _mio3_shape_keys_available():
+                self.report({'WARNING'}, "Enable the mio3_shape_keys addon to symmetrize shape keys in sculpt mode")
+                return {'CANCELLED'}
+            if not _can_symmetrize_shape_keys(self.active):
+                self.report({'WARNING'}, "Select a shape key other than the basis")
+                return {'CANCELLED'}
+            self.shape_keys = True
+            self.partial = False
+            self.remove = False
+
+        if self.partial and not self.weight_paint and not self.sculpt_mode:
             bm = bmesh.from_edit_mesh(self.active.data)
             if not [v for v in bm.verts if v.select]:
                 self.partial = False
@@ -1152,6 +1202,13 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         self.has_custom_normals = self.active.data.has_custom_normals
         self.has_vertex_groups = bool(self.active.vertex_groups)
         self.has_uvs = bool(self.active.data.uv_layers)
+        self.can_shape_keys = (
+            not self.weight_paint
+            and _mio3_shape_keys_available()
+            and _can_symmetrize_shape_keys(self.active)
+        )
+        if not self.can_shape_keys:
+            self.shape_keys = False
 
         if self.remove_redundant_center and _is_hyper_bevel(self.active):
             self.remove_redundant_center = False
@@ -1191,7 +1248,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         _ensure_default_lock(self.active)
         self.init_locked_axes = _locked_axes(self.active)
-        if self.weight_paint:
+        if self.weight_paint or self.sculpt_mode:
             sp = self.active.symmetrize_plus
             sp.lock_x = True
             sp.lock_y = False
@@ -1223,7 +1280,10 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         top_y = p0.y + self.flick_distance
         bottom_y = p0.y - self.flick_distance + (15 * scale)
 
-        if self.weight_paint:
+        if self.sculpt_mode:
+            _draw_label(context, 'Shape Keys', (p0.x, top_y), center=True, color=YELLOW, alpha=0.8)
+            top_y -= 12 * scale
+        elif self.weight_paint:
             _draw_label(context, 'Mirror Weights', (p0.x, top_y), center=True, color=WHITE, alpha=0.8)
             top_y -= 12 * scale
             topo = 'Topology' if self.use_topology else 'Standard'
@@ -1241,7 +1301,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
                 pcolor, palpha = (YELLOW, 1.0) if mirror_to_paired else (WHITE, 0.2)
                 _draw_label(context, paired, (p0.x, top_y), center=True, color=pcolor, alpha=palpha)
                 top_y -= 15 * scale
-        else:
+        elif not self.sculpt_mode:
             if self.partial:
                 _draw_label(context, 'Selected', (p0.x, top_y), center=True, color=color, alpha=1.0)
                 top_y -= 15 * scale
@@ -1265,7 +1325,12 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         flick_title = self.flick_direction.replace('_', ' ').title() if self.flick_direction else "None"
         _draw_label(context, flick_title, (p0.x, bottom_y), center=True, alpha=0.4)
 
-        if self.weight_paint or self.remove:
+        if self.weight_paint or self.sculpt_mode or self.remove:
+            return
+
+        if self.shape_keys and self.can_shape_keys:
+            bottom_y -= 15 * scale
+            _draw_label(context, "Shape Keys", (p0.x, bottom_y), center=True, color=YELLOW, alpha=1.0)
             return
 
         if not self.remove:
@@ -1297,11 +1362,17 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
                 ncolor, nalpha = (NORMAL_COLOR, 1.0) if self.mirror_custom_normals else (WHITE, 0.2)
                 _draw_label(context, title, (p0.x, bottom_y), center=True, color=ncolor, alpha=nalpha)
 
+            if self.can_shape_keys:
+                bottom_y -= 15 * scale
+                title = "Shape Keys" if self.shape_keys else "has Shape Keys"
+                skcolor, skalpha = (YELLOW, 1.0) if self.shape_keys else (WHITE, 0.2)
+                _draw_label(context, title, (p0.x, bottom_y), center=True, color=skcolor, alpha=skalpha)
+
     def draw_VIEW3D(self, context):
         if context.area != self.area:
             return
 
-        axes = _flick_axes(self.active, self.weight_paint)
+        axes = _flick_axes(self.active, self.weight_paint, self.sculpt_mode)
         if not axes:
             return
 
@@ -1328,23 +1399,28 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         self.is_shift = event.shift
 
         sp = self.active.symmetrize_plus
-        if self.weight_paint:
+        if self.weight_paint or self.sculpt_mode:
             sp.lock_x = True
             sp.lock_y = False
             sp.lock_z = False
         elif not self.is_ctrl and not self.is_shift and not any((sp.lock_x, sp.lock_y, sp.lock_z)):
             sp.lock_x = True
 
-        can_finish = self.weight_paint or bool(_locked_axes(self.active))
+        can_finish = self.weight_paint or self.sculpt_mode or bool(_locked_axes(self.active))
 
         events = ['MOUSEMOVE']
         if self.weight_paint:
             events.append('T')
             if self.has_vertex_groups:
                 events.append('B')
+        elif self.sculpt_mode:
+            if self.can_shape_keys:
+                events.append('K')
         else:
             events.extend(['X', 'Y', 'Z', 'S', 'P'])
-            if not self.remove:
+            if self.can_shape_keys:
+                events.append('K')
+            if not self.remove and not self.shape_keys:
                 if self.has_uvs:
                     events.append('D')
                 is_normal_mirror = not self.partial and self.has_custom_normals and self.mirror_custom_normals
@@ -1397,30 +1473,74 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
             elif (
                 not self.weight_paint
+                and not self.sculpt_mode
                 and event.type == 'X'
                 and event.value == 'PRESS'
                 and not (self.is_shift or self.is_ctrl)
             ):
                 self.remove = not self.remove
+                if self.remove:
+                    self.shape_keys = False
                 _force_ui_update(context)
 
-            elif not self.weight_paint and event.type in {'S', 'P'} and event.value == 'PRESS':
+            elif (
+                not self.weight_paint
+                and not self.sculpt_mode
+                and self.can_shape_keys
+                and event.type == 'K'
+                and event.value == 'PRESS'
+            ):
+                self.shape_keys = not self.shape_keys
+                if self.shape_keys:
+                    self.remove = False
+                _force_ui_update(context)
+
+            elif (
+                self.sculpt_mode
+                and self.can_shape_keys
+                and event.type == 'K'
+                and event.value == 'PRESS'
+            ):
+                self.shape_keys = not self.shape_keys
+                _force_ui_update(context)
+
+            elif not self.weight_paint and not self.sculpt_mode and event.type in {'S', 'P'} and event.value == 'PRESS':
                 self.partial = not self.partial
                 _force_ui_update(context)
 
-            elif not self.weight_paint and event.type == 'D' and event.value == 'PRESS':
+            elif (
+                not self.weight_paint
+                and not self.shape_keys
+                and event.type == 'D'
+                and event.value == 'PRESS'
+            ):
                 self.offset_uvs = not self.offset_uvs
                 _force_ui_update(context)
 
-            elif not self.weight_paint and event.type == 'R' and event.value == 'PRESS':
+            elif (
+                not self.weight_paint
+                and not self.shape_keys
+                and event.type == 'R'
+                and event.value == 'PRESS'
+            ):
                 self.remove_redundant_center = not self.remove_redundant_center
                 _force_ui_update(context)
 
-            elif not self.weight_paint and event.type == 'V' and event.value == 'PRESS':
+            elif (
+                not self.weight_paint
+                and not self.shape_keys
+                and event.type == 'V'
+                and event.value == 'PRESS'
+            ):
                 self.mirror_vertex_groups = not self.mirror_vertex_groups
                 _force_ui_update(context)
 
-            elif not self.weight_paint and event.type in {'N', 'C'} and event.value == 'PRESS':
+            elif (
+                not self.weight_paint
+                and not self.shape_keys
+                and event.type in {'N', 'C'}
+                and event.value == 'PRESS'
+            ):
                 self.mirror_custom_normals = not self.mirror_custom_normals
                 _force_ui_update(context)
 
@@ -1430,7 +1550,7 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
 
         elif can_finish and event.type in {'LEFTMOUSE', 'SPACE'} and event.value == 'PRESS':
             self.finish()
-            if self.weight_paint or self.flick_direction:
+            if self.weight_paint or self.sculpt_mode or self.flick_direction:
                 if self.flick_direction:
                     self._apply_flick_direction()
                 return self.execute(context)
@@ -1450,7 +1570,9 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         if not self.flick_vector.length:
             self.flick_direction = ""
             return
-        direction = _get_flick_direction(self, context, _flick_axes(self.active, self.weight_paint))
+        direction = _get_flick_direction(
+            self, context, _flick_axes(self.active, self.weight_paint, self.sculpt_mode),
+        )
         if direction:
             self.flick_direction = direction
             self._apply_flick_direction()
@@ -1513,6 +1635,38 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
         mesh.update_tag()
         return {'FINISHED'}
 
+    def _execute_shape_keys(self, context):
+        if not _mio3_shape_keys_available():
+            self.report({'WARNING'}, "Enable the mio3_shape_keys addon to symmetrize shape keys")
+            return {'CANCELLED'}
+
+        obj = context.active_object
+        if not _can_symmetrize_shape_keys(obj):
+            self.report({'WARNING'}, "Select a shape key other than the basis")
+            return {'CANCELLED'}
+
+        orig_mode = obj.mode
+        status = {'CANCELLED'}
+        try:
+            if not self.partial:
+                if obj.mode != 'EDIT':
+                    bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_all(action='SELECT')
+
+            direction = f"{self.direction}_{self.axis}"
+            result = bpy.ops.mesh.mio3sk_symmetrize(
+                direction=direction,
+                threshold=self.threshold,
+            )
+            status = {'FINISHED'} if 'FINISHED' in result else {'CANCELLED'}
+        finally:
+            if orig_mode == 'SCULPT' and obj.mode != 'SCULPT':
+                bpy.ops.object.mode_set(mode='SCULPT')
+            elif orig_mode == 'EDIT' and obj.mode != 'EDIT':
+                bpy.ops.object.mode_set(mode='EDIT')
+
+        return status
+
     def _execute_edit_mesh(self, context):
         obj = context.active_object
         obj.update_from_editmode()
@@ -1547,6 +1701,8 @@ class MESH_OT_symmetrize_plus_flick(bpy.types.Operator):
     def execute(self, context):
         if context.mode == 'PAINT_WEIGHT' or self.weight_paint:
             return self._execute_weight_paint(context)
+        if self.shape_keys or self.sculpt_mode:
+            return self._execute_shape_keys(context)
         return self._execute_edit_mesh(context)
 
 
