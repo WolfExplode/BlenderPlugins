@@ -56,6 +56,21 @@ if sys.platform == "win32":
         wintypes.LPARAM,
     )
 
+    _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.IsWindowVisible.restype = wintypes.BOOL
+    _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    _user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    _user32.GetClassNameW.restype = ctypes.c_int
+    _user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(_MONITORINFO)]
+    _user32.GetMonitorInfoW.restype = wintypes.BOOL
+    _user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    _user32.SetWindowPos.restype = wintypes.BOOL
+    _user32.EnumWindows.argtypes = [_WNDENUMPROC, wintypes.LPARAM]
+    _user32.EnumWindows.restype = wintypes.BOOL
+    _user32.EnumDisplayMonitors.argtypes = [wintypes.HDC, ctypes.c_void_p, _MONITORENUMPROC, wintypes.LPARAM]
+    _user32.EnumDisplayMonitors.restype = wintypes.BOOL
+
     def _work_area_top_left_second_monitor_win32():
         """Top-left of the work area on the first non-primary monitor; else primary."""
         rows = []
