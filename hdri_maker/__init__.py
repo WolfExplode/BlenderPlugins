@@ -15,6 +15,7 @@ from math import pi, radians
 import bpy
 import bpy.utils.previews
 import gpu
+import mathutils
 import numpy as np
 from bpy.props import (
     BoolProperty,
@@ -357,6 +358,13 @@ def _is_rotation_preview(space_data):
     return space_data.shading.type in {"MATERIAL", "RENDERED"}
 
 
+def _is_solid_shadow_mode(space_data):
+    if not space_data or not hasattr(space_data, "shading"):
+        return False
+    shading = space_data.shading
+    return shading.type == "SOLID" and shading.show_shadows
+
+
 def _is_supported_mode(context):
     return context.mode in {"OBJECT", "SCULPT", "PAINT_TEXTURE", "POSE"}
 
@@ -501,6 +509,8 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
     start_rotation_angle = 0.0
     _use_studiolight_rotation = False
     _studio_rotation_attr = None
+    _shadow_mode = False
+    start_light_direction = None
     @staticmethod
     def get_gpu_buffer(xy, wh=(1, 1), centered=False) -> Buffer:
         if isinstance(wh, (int, float)):
@@ -568,8 +578,8 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
         if not context.area or context.area.type != "VIEW_3D":
             _dbg("invoke: PASS_THROUGH — not VIEW_3D")
             return {"PASS_THROUGH"}
-        if not _is_rotation_preview(context.space_data):
-            _dbg(f"invoke: PASS_THROUGH — shading not MATERIAL/RENDERED ({getattr(shading, 'type', None)})")
+        if not _is_rotation_preview(context.space_data) and not _is_solid_shadow_mode(context.space_data):
+            _dbg(f"invoke: PASS_THROUGH — shading not MATERIAL/RENDERED/SOLID+shadows ({getattr(shading, 'type', None)})")
             return {"PASS_THROUGH"}
         if not _is_supported_mode(context):
             _dbg(f"invoke: PASS_THROUGH — unsupported mode {context.mode!r}")
@@ -580,8 +590,12 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
 
         shading = context.space_data.shading
         self.start_x = event.mouse_region_x
+        self._shadow_mode = _is_solid_shadow_mode(context.space_data)
         self._use_studiolight_rotation = _is_rotation_preview(context.space_data) and not shading.use_scene_world
-        if self._use_studiolight_rotation:
+        if self._shadow_mode:
+            self.start_light_direction = context.scene.display.light_direction.copy()
+            _dbg(f"invoke: RUNNING_MODAL — shadow rotation  start={self.start_light_direction}")
+        elif self._use_studiolight_rotation:
             props = context.scene.hdri_prop_scn
             self._studio_rotation_attr = _studio_rotation_prop_name(shading.type)
             if self._studio_rotation_attr:
@@ -611,7 +625,12 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
 
         if event.type == "MOUSEMOVE":
             dx = event.mouse_region_x - self.start_x
-            if self._use_studiolight_rotation:
+            if self._shadow_mode:
+                angle = radians(dx * 0.1)
+                rot_mat = mathutils.Matrix.Rotation(angle, 3, 'Y')
+                new_dir = rot_mat @ self.start_light_direction
+                context.scene.display.light_direction = new_dir
+            elif self._use_studiolight_rotation:
                 shading = context.space_data.shading
                 attr = _studio_rotation_prop_name(shading.type) or self._studio_rotation_attr
                 value = _wrap_studiolight_z(self.start_rotation_angle + radians(dx * 0.1))
