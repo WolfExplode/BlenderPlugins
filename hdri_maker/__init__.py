@@ -568,6 +568,9 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
         if not context.area or context.area.type != "VIEW_3D":
             _dbg("invoke: PASS_THROUGH — not VIEW_3D")
             return {"PASS_THROUGH"}
+        if not _is_rotation_preview(context.space_data):
+            _dbg(f"invoke: PASS_THROUGH — shading not MATERIAL/RENDERED ({getattr(shading, 'type', None)})")
+            return {"PASS_THROUGH"}
         if not _is_supported_mode(context):
             _dbg(f"invoke: PASS_THROUGH — unsupported mode {context.mode!r}")
             return {"PASS_THROUGH"}
