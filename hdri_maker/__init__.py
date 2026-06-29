@@ -8,6 +8,7 @@ bl_info = {
     "category": "3D View",
 }
 
+import logging
 import os
 from math import pi, radians
 
@@ -24,10 +25,41 @@ from bpy.props import (
     StringProperty,
 )
 from bpy.types import AddonPreferences, Operator, Panel, PropertyGroup, Scene, WindowManager
+from bpy_extras import view3d_utils
 from gpu.types import Buffer
 
 
 hdri_preview_collection = {}
+
+_DEBUG = True
+_last_known_mode = {}
+
+_log = logging.getLogger(__name__)
+
+class _BufHandler(logging.Handler):
+    def __init__(self, maxlen=500):
+        super().__init__()
+        self._buf = []
+        self._maxlen = maxlen
+    def emit(self, record):
+        self._buf.append(self.format(record))
+        if len(self._buf) > self._maxlen:
+            self._buf.pop(0)
+    def dump(self):
+        return list(self._buf)
+    def clear(self):
+        self._buf.clear()
+
+_buf_handler = _BufHandler()
+_buf_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+_log.addHandler(_buf_handler)
+_log.addHandler(logging.StreamHandler())
+_log.setLevel(logging.DEBUG)
+
+
+def _dbg(msg):
+    if _DEBUG:
+        _log.debug(msg)
 HDRI_WORLD_NAME = "HDRi Maker World"
 HDRI_ENV_NODE_NAME = "HDRi Maker Background"
 addon_keymaps = []
@@ -326,7 +358,7 @@ def _is_rotation_preview(space_data):
 
 
 def _is_supported_mode(context):
-    return context.mode in {"OBJECT", "SCULPT", "PAINT_TEXTURE"}
+    return context.mode in {"OBJECT", "SCULPT", "PAINT_TEXTURE", "POSE"}
 
 
 def _is_orthographic_view(context):
@@ -393,8 +425,10 @@ def _on_view3d_shading_notify(*_args):
         new_key = (shading.type, shading.use_scene_world)
         old_key = _last_shading_key.get(ptr)
         if old_key is None:
+            _dbg(f"shading init: type={new_key[0]}  use_scene_world={new_key[1]}")
             _last_shading_key[ptr] = new_key
         elif old_key != new_key:
+            _dbg(f"shading changed: {old_key[0]}(scene_world={old_key[1]}) -> {new_key[0]}(scene_world={new_key[1]})")
             _sync_shading_transition_for_space(window, space, old_key, new_key)
             _last_shading_key[ptr] = new_key
 
@@ -448,6 +482,17 @@ def _hdri_maker_load_post(_dummy):
     _subscribe_shading_msgbus()
 
 
+@bpy.app.handlers.persistent
+def _hdri_maker_depsgraph_update(_scene, _depsgraph):
+    ctx = bpy.context
+    if not ctx:
+        return
+    mode = getattr(ctx, "mode", None)
+    if mode and _last_known_mode.get("mode") != mode:
+        _dbg(f"mode changed: {_last_known_mode.get('mode')} -> {mode}")
+        _last_known_mode["mode"] = mode
+
+
 class HDRIMAKER_OT_RotateHDRI(Operator):
     bl_idname = "hdrimaker.rotate_hdri"
     bl_label = "Rotate HDRI"
@@ -456,8 +501,6 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
     start_rotation_angle = 0.0
     _use_studiolight_rotation = False
     _studio_rotation_attr = None
-    DEPTH_EPSILON = 1e-4
-
     @staticmethod
     def get_gpu_buffer(xy, wh=(1, 1), centered=False) -> Buffer:
         if isinstance(wh, (int, float)):
@@ -474,12 +517,11 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
 
     @classmethod
     def gpu_depth_ray_cast(cls, x, y, data):
-        size = 1
+        size = 10
         buffer = cls.get_gpu_buffer([x, y], wh=[size, size], centered=True)
         depth_samples = np.asarray(buffer, dtype=np.float32).ravel()
-        depth_value = float(depth_samples[0]) if depth_samples.size else 1.0
-        is_empty = (depth_value >= (1.0 - cls.DEPTH_EPSILON)) or (depth_value <= cls.DEPTH_EPSILON)
-        data["is_in_model"] = not is_empty
+        min_depth = float(np.min(depth_samples)) if depth_samples.size else 1.0
+        data["is_in_model"] = min_depth not in (0.0, 1.0)
 
     def get_mouse_location_ray_cast(self, context, event):
         x, y = event.mouse_region_x, event.mouse_region_y
@@ -497,16 +539,40 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
         bpy.ops.wm.redraw_timer(type="DRAW", iterations=1)
         space_view_3d.draw_handler_remove(handle, "WINDOW")
         view3d.shading.show_xray = show_xray
-        return data.get("is_in_model", False)
+        is_in_model = data.get("is_in_model", False)
+        if _DEBUG:
+            hit_name = None
+            try:
+                region = context.region
+                rv3d = context.region_data
+                origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, (x, y))
+                direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, (x, y))
+                hit, _loc, _nor, _idx, obj, _mat = context.scene.ray_cast(
+                    context.view_layer.depsgraph, origin, direction
+                )
+                hit_name = obj.name if hit and obj else None
+            except Exception as e:
+                hit_name = f"<error: {e}>"
+            _dbg(f"raycast at ({x}, {y}): is_in_model={is_in_model}  scene_hit={hit_name}")
+        return is_in_model
 
     def invoke(self, context, event):
+        shading = context.space_data.shading if context.space_data else None
+        _dbg(
+            f"invoke: mode={context.mode}  "
+            f"area={getattr(context.area, 'type', None)}  "
+            f"shading={getattr(shading, 'type', None)}  "
+            f"use_scene_world={getattr(shading, 'use_scene_world', None)}  "
+            f"mouse=({event.mouse_region_x}, {event.mouse_region_y})"
+        )
         if not context.area or context.area.type != "VIEW_3D":
+            _dbg("invoke: PASS_THROUGH — not VIEW_3D")
             return {"PASS_THROUGH"}
         if not _is_supported_mode(context):
-            return {"PASS_THROUGH"}
-        if context.mode != "SCULPT" and not _is_rotation_preview(context.space_data):
+            _dbg(f"invoke: PASS_THROUGH — unsupported mode {context.mode!r}")
             return {"PASS_THROUGH"}
         if not _is_orthographic_view(context) and self.get_mouse_location_ray_cast(context, event):
+            _dbg("invoke: PASS_THROUGH — mouse over geometry (perspective)")
             return {"FINISHED", "PASS_THROUGH"}
 
         shading = context.space_data.shading
@@ -520,9 +586,11 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
             else:
                 self._studio_rotation_attr = None
                 self.start_rotation_angle = shading.studiolight_rotate_z
+            _dbg(f"invoke: RUNNING_MODAL — studio light rotation  attr={self._studio_rotation_attr}  start={self.start_rotation_angle:.3f}")
         else:
             self._studio_rotation_attr = None
             self.start_rotation_angle = context.scene.hdri_prop_scn.rot_world_z
+            _dbg(f"invoke: RUNNING_MODAL — world rotation  start={self.start_rotation_angle:.3f}")
 
         context.window_manager.modal_handler_add(self)
         context.window.cursor_set("MOVE_X")
@@ -530,9 +598,11 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
 
     def modal(self, context, event):
         if event.type == "RIGHTMOUSE" and event.value == "RELEASE":
+            _dbg("modal: FINISHED (RMB release)")
             _modal_exit(context)
             return {"FINISHED"}
         if event.type == "ESC":
+            _dbg("modal: CANCELLED (ESC)")
             _modal_exit(context)
             return {"CANCELLED"}
 
@@ -629,6 +699,8 @@ def register():
     _subscribe_shading_msgbus()
     if _hdri_maker_load_post not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_hdri_maker_load_post)
+    if _hdri_maker_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_hdri_maker_depsgraph_update)
 
     wm = bpy.context.window_manager
     if wm.keyconfigs.addon:
@@ -650,6 +722,24 @@ def register():
         )
         addon_keymaps.append((sculpt_km, sculpt_kmi))
 
+        object_km = wm.keyconfigs.addon.keymaps.new(name="Object Mode", space_type="EMPTY", region_type="WINDOW")
+        object_kmi = object_km.keymap_items.new(
+            idname=HDRIMAKER_OT_RotateHDRI.bl_idname,
+            type="RIGHTMOUSE",
+            value="PRESS",
+            shift=True,
+        )
+        addon_keymaps.append((object_km, object_kmi))
+
+        pose_km = wm.keyconfigs.addon.keymaps.new(name="Pose", space_type="EMPTY", region_type="WINDOW")
+        pose_kmi = pose_km.keymap_items.new(
+            idname=HDRIMAKER_OT_RotateHDRI.bl_idname,
+            type="RIGHTMOUSE",
+            value="PRESS",
+            shift=True,
+        )
+        addon_keymaps.append((pose_km, pose_kmi))
+
 
 def unregister():
     for km, kmi in addon_keymaps:
@@ -658,6 +748,8 @@ def unregister():
 
     if _hdri_maker_load_post in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_hdri_maker_load_post)
+    if _hdri_maker_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_hdri_maker_depsgraph_update)
 
     bpy.msgbus.clear_by_owner(_HDRI_MAKER_MSGBUS_OWNER)
     _last_shading_key.clear()
