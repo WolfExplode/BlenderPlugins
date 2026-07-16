@@ -750,7 +750,6 @@ def register():
 
     _bootstrap_studio_rotation_props_from_viewports()
     _init_shading_type_cache()
-    _init_light_direction_cache()
     _subscribe_shading_msgbus()
     if _hdri_maker_load_post not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_hdri_maker_load_post)
