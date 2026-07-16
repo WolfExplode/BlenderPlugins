@@ -34,6 +34,7 @@ hdri_preview_collection = {}
 
 _DEBUG = True
 _last_known_mode = {}
+_light_direction_cache = {}
 
 _log = logging.getLogger(__name__)
 
@@ -459,6 +460,28 @@ def _bootstrap_studio_rotation_props_from_viewports():
                 props.rot_studio_rendered_z = shading.studiolight_rotate_z
 
 
+def _set_cached_light_direction(scene, direction):
+    """Update the viewport shadow direction without letting the change be picked up by
+    Blender's undo system: scene.display is real Scene ID data, so an unpushed write to it
+    gets silently folded into whatever undo step a later unrelated operator creates (undoing
+    that later action would also revert the shadow direction). Caching the value here and
+    re-pinning it in _hdri_maker_undo_redo_post keeps it immune to that, with zero History entries.
+    """
+    value = tuple(direction)
+    scene.display.light_direction = value
+    _light_direction_cache[scene.name] = value
+
+
+@bpy.app.handlers.persistent
+def _hdri_maker_undo_redo_post(_dummy):
+    scene = bpy.context.scene
+    if not scene:
+        return
+    cached = _light_direction_cache.get(scene.name)
+    if cached is not None:
+        scene.display.light_direction = cached
+
+
 def _init_shading_type_cache():
     _last_shading_key.clear()
     for _window, space in _iter_view3d_spaces():
@@ -482,11 +505,18 @@ def _subscribe_shading_msgbus():
     )
 
 
+def _init_light_direction_cache():
+    _light_direction_cache.clear()
+    for scene in bpy.data.scenes:
+        _light_direction_cache[scene.name] = tuple(scene.display.light_direction)
+
+
 @bpy.app.handlers.persistent
 def _hdri_maker_load_post(_dummy):
     """Blender clears msgbus subscribers on file load; restore subscriptions and caches."""
     _bootstrap_studio_rotation_props_from_viewports()
     _init_shading_type_cache()
+    _init_light_direction_cache()
     _subscribe_shading_msgbus()
 
 
@@ -620,6 +650,8 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
             return {"FINISHED"}
         if event.type == "ESC":
             _dbg("modal: CANCELLED (ESC)")
+            if self._shadow_mode and self.start_light_direction is not None:
+                _set_cached_light_direction(context.scene, self.start_light_direction)
             _modal_exit(context)
             return {"CANCELLED"}
 
@@ -629,7 +661,7 @@ class HDRIMAKER_OT_RotateHDRI(Operator):
                 angle = radians(dx * 0.1)
                 rot_mat = mathutils.Matrix.Rotation(angle, 3, 'Y')
                 new_dir = rot_mat @ self.start_light_direction
-                context.scene.display.light_direction = new_dir
+                _set_cached_light_direction(context.scene, new_dir)
             elif self._use_studiolight_rotation:
                 shading = context.space_data.shading
                 attr = _studio_rotation_prop_name(shading.type) or self._studio_rotation_attr
@@ -718,11 +750,16 @@ def register():
 
     _bootstrap_studio_rotation_props_from_viewports()
     _init_shading_type_cache()
+    _init_light_direction_cache()
     _subscribe_shading_msgbus()
     if _hdri_maker_load_post not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_hdri_maker_load_post)
     if _hdri_maker_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_hdri_maker_depsgraph_update)
+    if _hdri_maker_undo_redo_post not in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.append(_hdri_maker_undo_redo_post)
+    if _hdri_maker_undo_redo_post not in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.append(_hdri_maker_undo_redo_post)
 
     wm = bpy.context.window_manager
     if wm.keyconfigs.addon:
@@ -772,9 +809,14 @@ def unregister():
         bpy.app.handlers.load_post.remove(_hdri_maker_load_post)
     if _hdri_maker_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_hdri_maker_depsgraph_update)
+    if _hdri_maker_undo_redo_post in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.remove(_hdri_maker_undo_redo_post)
+    if _hdri_maker_undo_redo_post in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.remove(_hdri_maker_undo_redo_post)
 
     bpy.msgbus.clear_by_owner(_HDRI_MAKER_MSGBUS_OWNER)
     _last_shading_key.clear()
+    _light_direction_cache.clear()
 
     del WindowManager.hdri_category
     del Scene.hdri_prop_scn
