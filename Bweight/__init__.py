@@ -1,4 +1,4 @@
-from . import ops, keymap
+from . import ops, keymap, normalize
 
 bl_info = {
     "name": "Bweight",
@@ -10,7 +10,7 @@ bl_info = {
     "category": "Paint",
 }
 
-modules = (ops, keymap)
+modules = (ops, keymap, normalize)
 
 
 def register():

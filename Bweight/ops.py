@@ -27,40 +27,77 @@ def _get_weights(mesh, group_index):
     n = len(mesh.vertices)
     weights = np.zeros(n, dtype=np.float64)
     in_group = np.zeros(n, dtype=bool)
-    for v in mesh.vertices:
+    # enumerate avoids one v.index RNA lookup per vertex; this loop is the
+    # hot path and has no vectorized equivalent in the Python API
+    for i, v in enumerate(mesh.vertices):
         for g in v.groups:
             if g.group == group_index:
-                weights[v.index] = g.weight
-                in_group[v.index] = True
+                weights[i] = g.weight
+                in_group[i] = True
                 break
     return weights, in_group
 
 
-def _normalize_others(mesh, active_index, indices, new_active_weights, locked_indices):
-    """Redistribute the remainder across each vertex's other unlocked groups,
-    matching Blender's weight-paint auto-normalize behavior. Returns the
-    (possibly clamped) active weights actually applied."""
+def _normalize_others(obj, active_index, indices, new_active_weights, locked_indices,
+                      allowed_indices=None, old_active_weights=None):
+    """Rebalance each vertex's other unlocked groups after the active group
+    changed. Returns the (possibly clamped) active weights actually applied.
+
+    Normal mode (allowed_indices is None): matches Blender's auto-normalize —
+    the other groups are scaled so the vertex total hits 1.
+
+    Scoped mode (allowed_indices given, with old_active_weights): groups
+    outside the scope are treated as locked and the scope's weight subtotal is
+    conserved instead of forced to 1 — weight removed from the active group
+    moves to the other in-scope groups, weight added drains them (the painted
+    value stays authoritative, so once the others hit 0 the subtotal grows).
+    When the in-scope others carry no weight to scale, the freed weight is
+    split equally among them, assigning the vertex to those groups if needed.
+    """
+    mesh = obj.data
     applied = new_active_weights.copy()
+    scoped = allowed_indices is not None
+    spread_groups = ()
+    if scoped:
+        spread_groups = [
+            vg for vg in obj.vertex_groups
+            if vg.index in allowed_indices
+            and vg.index != active_index
+            and vg.index not in locked_indices
+        ]
     for k, i in enumerate(indices):
         vertex = mesh.vertices[i]
-        locked_sum = 0.0
+        fixed_sum = 0.0
         others = []
         for g in vertex.groups:
             if g.group == active_index:
                 continue
-            if g.group in locked_indices:
-                locked_sum += g.weight
+            if g.group in locked_indices or (
+                scoped and g.group not in allowed_indices
+            ):
+                fixed_sum += g.weight
             else:
                 others.append(g)
-        room = max(0.0, 1.0 - locked_sum)
+        room = max(0.0, 1.0 - fixed_sum)
         active_w = min(new_active_weights[k], room)
         applied[k] = active_w
-        remaining = room - active_w
         others_sum = sum(g.weight for g in others)
+        if scoped and old_active_weights is not None:
+            # conserve the scope's subtotal rather than filling to 1
+            scope_total = min(old_active_weights[k] + others_sum, room)
+            remaining = max(0.0, scope_total - active_w)
+        else:
+            remaining = room - active_w
         if others_sum > 1e-8:
             scale = remaining / others_sum
             for g in others:
                 g.weight *= scale
+        elif spread_groups and remaining > 1e-8:
+            share = remaining / len(spread_groups)
+            # indices may be a numpy array; VertexGroup.add rejects np.int64
+            index_list = [int(i)]
+            for vg in spread_groups:
+                vg.add(index_list, share, 'REPLACE')
     return applied
 
 
@@ -148,10 +185,17 @@ class PAINT_OT_bweight_filter(bpy.types.Operator):
         indices = np.nonzero(changed)[0]
         final_weights = weights[indices]
 
-        if context.tool_settings.use_auto_normalize and len(obj.vertex_groups) > 1:
+        scoped = getattr(context.scene, "bweight_scoped_normalize", False)
+        if ((context.tool_settings.use_auto_normalize or scoped)
+                and len(obj.vertex_groups) > 1):
             locked_indices = {vg2.index for vg2 in obj.vertex_groups if vg2.lock_weight}
+            allowed = None
+            if scoped:
+                from .normalize import scope_indices
+                allowed = scope_indices(obj, vgroup.index)
             final_weights = _normalize_others(
-                mesh, vgroup.index, indices, final_weights, locked_indices,
+                obj, vgroup.index, indices, final_weights, locked_indices, allowed,
+                old_active_weights=original[indices],
             )
 
         # vgroup.add takes one weight per call, so batch vertices sharing a value
