@@ -25,11 +25,30 @@ hard way -- see git history.
 Default is a DRY RUN that prints a report grouped by operator prefix.
 Review it, then set REMOVE = True and run again to delete the flagged items.
 
-NOTE: an operator also reads as missing while its addon is merely disabled
-(not uninstalled). Enable everything you still use before running with
-REMOVE = True, or shield specific addons via KEEP_PREFIXES.
+Orphan candidates are double-checked against currently ENABLED addons before
+being flagged, because "not registered right now" is not proof of removal:
+addons register operators/menus conditionally (MACHIN3tools only registers
+the pies you activate in its preferences -- deactivating the Modes Pie
+unregisters MACHIN3_MT_modes_pie, and a naive hasattr check then deletes
+every Tab binding for it; learned this the hard way too). The double-check:
+  1. the addon keyconfig (wm.keyconfigs.addon) -- items an enabled addon is
+     actively contributing (matched by operator + properties, not key, so
+     user-remapped copies still count)
+  2. the source files of every INSTALLED addon (enabled or not, via
+     addon_utils.modules) -- a literal occurrence of the operator idname or
+     menu/panel class name means the owner addon is still installed, just
+     disabled or not registering that piece right now
+Items rescued this way are reported separately and never deleted, so only
+keymaps of truly UNINSTALLED addons get flagged as orphans.
+
+Blind spots of the source scan: addons shipping only compiled code
+(.pyc / native modules) or building idnames dynamically at runtime won't
+match -- shield those via KEEP_PREFIXES.
 """
 
+import os
+
+import addon_utils
 import bpy
 
 REMOVE = False            # True: actually delete flagged items
@@ -37,11 +56,12 @@ REMOVE_ORPHANS = True
 REMOVE_DUPLICATES = True
 SAVE_PREFS = False        # True: save preferences after removal
 
-# Operator prefixes to keep even if unregistered right now
-# (addons you sometimes disable but still use), e.g. {"hops", "cp"}.
+# Operator prefixes to keep even if unregistered and unmatched by the
+# installed-addon source scan (compiled-only or dynamic-idname addons),
+# e.g. {"hops", "cp"}.
 KEEP_PREFIXES: set[str] = set()
 
-_UI_CALL_OPS = {"wm.call_menu", "wm.call_menu_pie", "wm.call_panel"}
+_UI_CALL_OPS = {"wm.call_menu", "wm.call_menu_pie", "wm.call_panel", "wm.call_asset_shelf_popover"}
 
 
 def operator_exists(idname: str) -> bool:
@@ -63,6 +83,68 @@ def missing_ui_target(kmi) -> str | None:
     if name and not hasattr(bpy.types, name):
         return name
     return None
+
+
+_addon_source_cache: dict[str, tuple[str, bool]] | None = None
+_token_cache: dict[str, tuple[str, bool] | None] = {}
+
+
+def _addon_sources() -> dict[str, tuple[str, bool]]:
+    """{module_name: (concatenated .py source, is_enabled)} for every
+    INSTALLED addon, enabled or not."""
+    global _addon_source_cache
+    if _addon_source_cache is None:
+        _addon_source_cache = {}
+        enabled = {a.module for a in bpy.context.preferences.addons}
+        for mod in addon_utils.modules(refresh=False):
+            file = getattr(mod, "__file__", None)
+            if not file:
+                continue
+            paths = []
+            if os.path.basename(file) == "__init__.py":
+                for dirpath, _dirs, files in os.walk(os.path.dirname(file)):
+                    paths.extend(os.path.join(dirpath, fn) for fn in files if fn.endswith(".py"))
+            else:
+                paths.append(file)
+            chunks = []
+            for path in paths:
+                try:
+                    with open(path, encoding="utf-8", errors="ignore") as f:
+                        chunks.append(f.read())
+                except OSError:
+                    pass
+            _addon_source_cache[mod.__name__] = ("\n".join(chunks), mod.__name__ in enabled)
+    return _addon_source_cache
+
+
+def find_owner_addon(token: str) -> tuple[str, bool] | None:
+    """(module_name, is_enabled) of the installed addon whose source mentions
+    token, or None if no installed addon does.
+
+    token is an operator idname ('machin3.smart_vert') or a menu/panel class
+    name ('MACHIN3_MT_modes_pie'); both appear literally in the source of the
+    addon that defines them, even while that piece is deactivated (or the
+    whole addon disabled) and thus unregistered. Enabled addons are preferred
+    when several mention the same token.
+    """
+    if token not in _token_cache:
+        hits = [
+            (name, is_enabled)
+            for name, (src, is_enabled) in _addon_sources().items()
+            if token in src
+        ]
+        _token_cache[token] = max(hits, key=lambda hit: hit[1]) if hits else None
+    return _token_cache[token]
+
+
+def addon_keyconfig_has(km_name: str, kmi) -> bool:
+    """True if an enabled addon currently contributes this item (operator +
+    properties; the key is ignored so user-remapped copies still match)."""
+    km = bpy.context.window_manager.keyconfigs.addon.keymaps.get(km_name)
+    return km is not None and any(
+        other.idname == kmi.idname and properties_equal(kmi.properties, other.properties)
+        for other in km.keymap_items
+    )
 
 
 def properties_equal(a, b) -> bool:
@@ -96,10 +178,43 @@ def describe_key(kmi) -> str:
     return " ".join(mods + [kmi.type]) + f" ({kmi.value})"
 
 
+def check_orphan(km_name: str, kmi) -> tuple[str | None, str | None]:
+    """(flag_reason, spare_note) -- at most one is set.
+
+    flag_reason: kmi is unregistered and no installed addon claims it -> remove.
+    spare_note:  kmi is unregistered, but 'not registered right now' is not
+                 proof of removal -- an installed addon still owns it, either
+                 contributing it via the addon keyconfig or mentioning the
+                 operator / menu class in its source (disabled addons, or
+                 conditionally registered pieces like deactivated MACHIN3tools
+                 pies) -> keep.
+    Both None: kmi's operator is registered, nothing orphaned about it.
+    """
+    if not operator_exists(kmi.idname):
+        reason, token = "missing operator", kmi.idname
+    else:
+        target = missing_ui_target(kmi)
+        if target is None:
+            return None, None
+        reason, token = f"missing menu/panel '{target}'", target
+
+    if addon_keyconfig_has(km_name, kmi):
+        return None, f"{reason}, but contributed by an enabled addon's keyconfig"
+    owner = find_owner_addon(token)
+    if owner is not None:
+        name, is_enabled = owner
+        state = "enabled" if is_enabled else "installed but DISABLED"
+        return None, f"{reason}, but owned by {state} addon '{name}'"
+    return reason, None
+
+
 def scan():
-    """Return {keymap_name: [(kmi, reason), ...]} for all flagged items."""
+    """Return ({keymap_name: [(kmi, reason), ...]}, [(keymap_name, kmi, note), ...]):
+    items flagged for removal, and orphan candidates spared by the enabled-addon
+    double-check."""
     kc = bpy.context.window_manager.keyconfigs.user
     flagged = {}
+    spared = []
     for km in kc.keymaps:
         if km.is_modal:
             continue
@@ -110,22 +225,28 @@ def scan():
                 kept.append(kmi)
                 continue
 
-            if REMOVE_ORPHANS and not operator_exists(kmi.idname):
-                flagged.setdefault(km.name, []).append((kmi, "missing operator"))
-                continue
-            target = missing_ui_target(kmi)
-            if REMOVE_ORPHANS and target is not None:
-                flagged.setdefault(km.name, []).append((kmi, f"missing menu/panel '{target}'"))
-                continue
+            note = None
+            if REMOVE_ORPHANS:
+                reason, note = check_orphan(km.name, kmi)
+                if reason is not None:
+                    flagged.setdefault(km.name, []).append((kmi, reason))
+                    continue
 
             if REMOVE_DUPLICATES and any(items_equal(kmi, other) for other in kept):
                 flagged.setdefault(km.name, []).append((kmi, "duplicate"))
                 continue
+            if note is not None:
+                spared.append((km.name, kmi, note))
             kept.append(kmi)
-    return flagged
+    return flagged, spared
 
 
-def report(flagged):
+def report(flagged, spared):
+    if spared:
+        print(f"Spared {len(spared)} unregistered item(s) still claimed by an installed addon:")
+        for km_name, kmi, note in spared:
+            print(f"  [{km_name}] {kmi.idname:<40} {describe_key(kmi):<25} -- {note}")
+
     total = sum(len(v) for v in flagged.values())
     by_prefix = {}
     for km_name, items in sorted(flagged.items()):
@@ -166,8 +287,8 @@ def remove(flagged):
 
 
 def main():
-    flagged = scan()
-    total = report(flagged)
+    flagged, spared = scan()
+    total = report(flagged, spared)
     if not total:
         print("Nothing to clean.")
         return
