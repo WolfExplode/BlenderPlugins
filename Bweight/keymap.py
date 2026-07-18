@@ -41,18 +41,30 @@ def _find_shift_lmb_weight_paint_kmi():
 
 
 def _patch_shift_smooth():
+    """Returns True once patched (or already SMOOTH). Returns False if the
+    Weight Paint keymap isn't populated yet, so the caller can retry -- at
+    startup, keyconfigs.user may not be fully merged when register() runs."""
     global _shift_smooth_original, _shift_smooth_patched
     if _shift_smooth_patched:
-        return
+        return True
     kmi = _find_shift_lmb_weight_paint_kmi()
     if kmi is None:
-        return
+        return False
     current = kmi.properties.brush_toggle
     if current == 'SMOOTH':
-        return
+        _shift_smooth_patched = True
+        return True
     _shift_smooth_original = current or 'None'
     kmi.properties.brush_toggle = 'SMOOTH'
     _shift_smooth_patched = True
+    return True
+
+
+def _patch_shift_smooth_retry():
+    """Timer callback: keep retrying until the keymap is available, then stop."""
+    if _patch_shift_smooth():
+        return None
+    return 0.5
 
 
 def _unpatch_shift_smooth():
@@ -78,10 +90,14 @@ def register():
             kmi.properties.filter_type = filter_type
             addon_keymaps.append((km, kmi))
 
-    _patch_shift_smooth()
+    if not _patch_shift_smooth():
+        bpy.app.timers.register(_patch_shift_smooth_retry, first_interval=0.5)
 
 
 def unregister():
+    if bpy.app.timers.is_registered(_patch_shift_smooth_retry):
+        bpy.app.timers.unregister(_patch_shift_smooth_retry)
+
     _unpatch_shift_smooth()
 
     for km, kmi in addon_keymaps:
