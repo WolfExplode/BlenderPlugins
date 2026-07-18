@@ -11,7 +11,16 @@ Finds, in every non-modal keymap of the user keyconfig:
                 by addons that were removed years ago; also call_menu /
                 call_menu_pie / call_panel items whose menu or panel class
                 no longer exists)
-  - duplicates: identical items bound to the same key (KeyMapItem.compare)
+  - duplicates: items with the same operator, same properties, and the same
+                key event as another item already kept
+
+Duplicate detection deliberately does NOT use KeyMapItem.compare() alone --
+that method only compares the event trigger (key/modifiers/value), not the
+operator or its properties. Two different operators legitimately share a
+key (e.g. an addon's G-key operator that PASS_THROUGHs to the built-in
+transform.translate also bound to G as a fallback); compare()-only dedupe
+deletes the fallback and silently breaks the shortcut. Learned this the
+hard way -- see git history.
 
 Default is a DRY RUN that prints a report grouped by operator prefix.
 Review it, then set REMOVE = True and run again to delete the flagged items.
@@ -56,6 +65,20 @@ def missing_ui_target(kmi) -> str | None:
     return None
 
 
+def properties_equal(a, b) -> bool:
+    if a is None or b is None:
+        return a is b
+    names = {p.identifier for p in a.bl_rna.properties if p.identifier != "rna_type"}
+    if names != {p.identifier for p in b.bl_rna.properties if p.identifier != "rna_type"}:
+        return False
+    return all(getattr(a, name) == getattr(b, name) for name in names)
+
+
+def items_equal(a, b) -> bool:
+    """True duplicate: same operator, same properties, same key event."""
+    return a.idname == b.idname and a.compare(b) and properties_equal(a.properties, b.properties)
+
+
 def describe_key(kmi) -> str:
     mods = [
         label
@@ -95,7 +118,7 @@ def scan():
                 flagged.setdefault(km.name, []).append((kmi, f"missing menu/panel '{target}'"))
                 continue
 
-            if REMOVE_DUPLICATES and any(kmi.compare(other) for other in kept):
+            if REMOVE_DUPLICATES and any(items_equal(kmi, other) for other in kept):
                 flagged.setdefault(km.name, []).append((kmi, "duplicate"))
                 continue
             kept.append(kmi)
