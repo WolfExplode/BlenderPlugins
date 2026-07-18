@@ -1,122 +1,158 @@
+"""Clean orphaned and duplicate keymap items from Blender's user keyconfig.
+
+Must run INSIDE Blender (Scripting workspace -> open this file -> Run Script):
+orphan detection works by querying Blender's live operator registry, which an
+external script can't see. This replaces the old external dedupe approach,
+which could only compare text and had no way to know whether an operator
+still exists.
+
+Finds, in every non-modal keymap of the user keyconfig:
+  - orphans:    items whose operator is not registered (typically left behind
+                by addons that were removed years ago; also call_menu /
+                call_menu_pie / call_panel items whose menu or panel class
+                no longer exists)
+  - duplicates: identical items bound to the same key (KeyMapItem.compare)
+
+Default is a DRY RUN that prints a report grouped by operator prefix.
+Review it, then set REMOVE = True and run again to delete the flagged items.
+
+NOTE: an operator also reads as missing while its addon is merely disabled
+(not uninstalled). Enable everything you still use before running with
+REMOVE = True, or shield specific addons via KEEP_PREFIXES.
 """
-Deduplicate Blender exported keyconfig_data items (per section) and drop inactive shortcuts.
 
-Run: python clean_keymaps.py [path-to-Blender Keymaps 5_0.py]
-Default path is this repo's keymap file next to this script.
-"""
-from __future__ import annotations
+import bpy
 
-import pprint
-import sys
-from pathlib import Path
+REMOVE = False            # True: actually delete flagged items
+REMOVE_ORPHANS = True
+REMOVE_DUPLICATES = True
+SAVE_PREFS = False        # True: save preferences after removal
 
+# Operator prefixes to keep even if unregistered right now
+# (addons you sometimes disable but still use), e.g. {"hops", "cp"}.
+KEEP_PREFIXES: set[str] = set()
 
-def _freeze(x):
-    if isinstance(x, dict):
-        return tuple((k, _freeze(v)) for k, v in x.items())
-    if isinstance(x, (list, tuple)):
-        return tuple(_freeze(i) for i in x)
-    return x
+_UI_CALL_OPS = {"wm.call_menu", "wm.call_menu_pie", "wm.call_panel"}
 
 
-def _item_signature(it: tuple) -> tuple:
-    if not isinstance(it, tuple) or not it:
-        return ("__non_keymap__", _freeze(it))
-    op = it[0]
-    kd = it[1] if len(it) > 1 else {}
-    pr = it[2] if len(it) > 2 else None
-    if pr is None or pr == {}:
-        pr_f: tuple = ()
-    else:
-        pr_f = _freeze(pr)
-    return (op, _freeze(kd), pr_f)
-
-
-def _is_inactive(it: tuple) -> bool:
-    if len(it) < 3 or not isinstance(it[2], dict):
+def operator_exists(idname: str) -> bool:
+    if "." not in idname:
         return False
-    return it[2].get("active") is False
+    mod, _, func = idname.partition(".")
+    try:
+        getattr(getattr(bpy.ops, mod), func).get_rna_type()
+        return True
+    except Exception:
+        return False
 
 
-def clean_keyconfig_data(keyconfig_data: list) -> tuple[list, dict]:
-    stats = {
-        "sections": 0,
-        "items_before": 0,
-        "items_after": 0,
-        "removed_inactive": 0,
-        "removed_duplicate": 0,
-    }
-    out: list = []
-    for block in keyconfig_data:
-        if not isinstance(block, tuple) or len(block) < 3:
-            out.append(block)
-            continue
-        stats["sections"] += 1
-        name, region, body = block[0], block[1], block[2]
-        if not isinstance(body, dict) or "items" not in body:
-            out.append(block)
-            continue
-        items = body["items"]
-        stats["items_before"] += len(items)
-        seen: set = set()
-        new_items = []
-        for it in items:
-            if not isinstance(it, tuple):
-                new_items.append(it)
-                continue
-            if _is_inactive(it):
-                stats["removed_inactive"] += 1
-                continue
-            sig = _item_signature(it)
-            if sig in seen:
-                stats["removed_duplicate"] += 1
-                continue
-            seen.add(sig)
-            new_items.append(it)
-        stats["items_after"] += len(new_items)
-        out.append((name, region, {"items": new_items}))
-    return out, stats
+def missing_ui_target(kmi) -> str | None:
+    """For call_menu/pie/panel items, the target class name if unregistered."""
+    if kmi.idname not in _UI_CALL_OPS:
+        return None
+    name = getattr(kmi.properties, "name", "")
+    if name and not hasattr(bpy.types, name):
+        return name
+    return None
 
 
-def main() -> int:
-    default = Path(__file__).resolve().parent / "Blender Keymaps 5_0.py"
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else default
-    text = path.read_text(encoding="utf-8")
-    marker = '\nif __name__ == "__main__":'
-    idx = text.find(marker)
-    if idx == -1:
-        print("Could not find if __name__ block; aborting.", file=sys.stderr)
-        return 1
-    header = text[:idx]
-    footer = text[idx:]
-
-    ns: dict = {"__name__": "_keyconfig_clean"}
-    exec(compile(header + "\n", str(path), "exec"), ns)
-    version = ns.get("keyconfig_version")
-    data = ns.get("keyconfig_data")
-    if data is None:
-        print("keyconfig_data missing after exec.", file=sys.stderr)
-        return 1
-
-    cleaned, stats = clean_keyconfig_data(data)
-
-    body = [
-        f"keyconfig_version = {version!r}",
-        "keyconfig_data = \\",
-        pprint.pformat(cleaned, width=100, sort_dicts=False),
-        "",
+def describe_key(kmi) -> str:
+    mods = [
+        label
+        for flag, label in (
+            (kmi.any, "Any"),
+            (kmi.ctrl, "Ctrl"),
+            (kmi.shift, "Shift"),
+            (kmi.alt, "Alt"),
+            (kmi.oskey, "OS"),
+        )
+        if flag
     ]
-    new_text = "\n".join(body) + footer
-    path.write_text(new_text, encoding="utf-8")
+    if kmi.key_modifier != 'NONE':
+        mods.append(kmi.key_modifier)
+    return " ".join(mods + [kmi.type]) + f" ({kmi.value})"
 
-    print(f"Wrote: {path}")
-    print(
-        f"Sections processed: {stats['sections']}, "
-        f"items {stats['items_before']} -> {stats['items_after']} "
-        f"(inactive -{stats['removed_inactive']}, dupes -{stats['removed_duplicate']})"
-    )
-    return 0
+
+def scan():
+    """Return {keymap_name: [(kmi, reason), ...]} for all flagged items."""
+    kc = bpy.context.window_manager.keyconfigs.user
+    flagged = {}
+    for km in kc.keymaps:
+        if km.is_modal:
+            continue
+        kept = []
+        for kmi in km.keymap_items:
+            prefix = kmi.idname.partition(".")[0]
+            if prefix in KEEP_PREFIXES:
+                kept.append(kmi)
+                continue
+
+            if REMOVE_ORPHANS and not operator_exists(kmi.idname):
+                flagged.setdefault(km.name, []).append((kmi, "missing operator"))
+                continue
+            target = missing_ui_target(kmi)
+            if REMOVE_ORPHANS and target is not None:
+                flagged.setdefault(km.name, []).append((kmi, f"missing menu/panel '{target}'"))
+                continue
+
+            if REMOVE_DUPLICATES and any(kmi.compare(other) for other in kept):
+                flagged.setdefault(km.name, []).append((kmi, "duplicate"))
+                continue
+            kept.append(kmi)
+    return flagged
+
+
+def report(flagged):
+    total = sum(len(v) for v in flagged.values())
+    by_prefix = {}
+    for km_name, items in sorted(flagged.items()):
+        print(f"\n[{km_name}]")
+        for kmi, reason in items:
+            print(f"  {kmi.idname:<45} {describe_key(kmi):<30} -- {reason}")
+            by_prefix.setdefault(kmi.idname.partition(".")[0], 0)
+            by_prefix[kmi.idname.partition(".")[0]] += 1
+    print(f"\n{'=' * 60}")
+    print(f"Flagged {total} item(s) across {len(flagged)} keymap(s).")
+    if by_prefix:
+        print("By operator prefix (likely source addon):")
+        for prefix, count in sorted(by_prefix.items(), key=lambda kv: -kv[1]):
+            print(f"  {prefix:<20} {count}")
+    return total
+
+
+def remove(flagged):
+    kc = bpy.context.window_manager.keyconfigs.user
+    removed = 0
+    for km_name, items in flagged.items():
+        km = kc.keymaps.get(km_name)
+        if km is None:
+            continue
+        for kmi, _reason in items:
+            try:
+                km.keymap_items.remove(kmi)
+                removed += 1
+            except Exception as ex:
+                print(f"  could not remove {kmi.idname} from {km_name}: {ex}")
+    print(f"Removed {removed} keymap item(s).")
+    if SAVE_PREFS:
+        bpy.ops.wm.save_userpref()
+        print("Preferences saved.")
+    else:
+        print("Preferences NOT saved -- save manually to persist, or restart to revert.")
+    return removed
+
+
+def main():
+    flagged = scan()
+    total = report(flagged)
+    if not total:
+        print("Nothing to clean.")
+        return
+    if REMOVE:
+        remove(flagged)
+    else:
+        print("\nDry run only. Set REMOVE = True and run again to delete these.")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
