@@ -208,7 +208,96 @@ class PAINT_OT_bweight_filter(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (PAINT_OT_bweight_filter,)
+class PAINT_OT_bweight_gradient_invert_hold(bpy.types.Operator):
+    """While the Gradient tool is active, holding Ctrl temporarily sets the
+    paint weight to 1 - weight, restoring it when Ctrl is released. This makes
+    Ctrl+drag lay down an inverted gradient, approximating how Ctrl inverts
+    the brush. (paint.weight_gradient's own keymap can't be extended: Blender
+    regenerates tool keymaps and Ctrl+drag never dispatched to added items.)"""
+    bl_idname = "paint.bweight_gradient_invert_hold"
+    bl_label = "Invert Weight While Ctrl Held"
+    bl_options = {'INTERNAL'}
+
+    _running = False
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != 'PAINT_WEIGHT':
+            return False
+        tool = context.workspace.tools.from_space_view3d_mode(
+            'PAINT_WEIGHT', create=False)
+        return tool is not None and tool.idname == "builtin.gradient"
+
+    @staticmethod
+    def _weight_owner(context):
+        # Blender 5 moved unified_paint_settings from ToolSettings to Paint
+        wp = context.tool_settings.weight_paint
+        ups = wp.unified_paint_settings
+        if ups.use_unified_weight:
+            return ups
+        return wp.brush
+
+    def invoke(self, context, event):
+        cls = self.__class__
+        if cls._running:
+            return {'PASS_THROUGH'}
+        owner = self._weight_owner(context)
+        if owner is None:
+            return {'PASS_THROUGH'}
+        cls._running = True
+        self._owner = owner
+        self._original = owner.weight
+        owner.weight = 1.0 - owner.weight
+        if context.area:
+            context.area.tag_redraw()
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if (event.type in {'LEFT_CTRL', 'RIGHT_CTRL'}
+                and event.value == 'RELEASE') or context.mode != 'PAINT_WEIGHT':
+            self._restore(context)
+            return {'FINISHED'}
+        return {'PASS_THROUGH'}
+
+    def _restore(self, context):
+        try:
+            self._owner.weight = self._original
+        except ReferenceError:
+            pass
+        self.__class__._running = False
+        if context.area:
+            context.area.tag_redraw()
+
+
+class PAINT_OT_bweight_gradient_ctrl(bpy.types.Operator):
+    """Run the weight gradient using the Gradient tool's current Linear/Radial
+    setting. Needed for the Ctrl+drag binding: a plain keymap entry must
+    hardcode the type, and only the tool's own keymap item receives the value
+    picked in the tool header."""
+    bl_idname = "paint.bweight_gradient_ctrl"
+    bl_label = "Weight Gradient (Tool Type)"
+    bl_options = {'INTERNAL'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'PAINT_WEIGHT'
+
+    def invoke(self, context, event):
+        tool = context.workspace.tools.from_space_view3d_mode(
+            'PAINT_WEIGHT', create=False)
+        gtype = 'LINEAR'
+        if tool is not None and tool.idname == "builtin.gradient":
+            gtype = tool.operator_properties("paint.weight_gradient").type
+        bpy.ops.paint.weight_gradient('INVOKE_DEFAULT', type=gtype)
+        return {'FINISHED'}
+
+
+classes = (
+    PAINT_OT_bweight_filter,
+    PAINT_OT_bweight_gradient_invert_hold,
+    PAINT_OT_bweight_gradient_ctrl,
+)
 
 
 def register():

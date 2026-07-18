@@ -28,6 +28,28 @@ def register():
         kmi.properties.filter_type = filter_type
         addon_keymaps.append((km, kmi))
 
+    # Ctrl-inverted gradient, in two cooperating parts:
+    # 1. Holding Ctrl with the Gradient tool inverts the paint weight (1 - w)
+    #    until released (paint.weight_gradient's own 'flip' property is
+    #    ignored in interactive use, so inverting the weight is the only way).
+    for key in ('LEFT_CTRL', 'RIGHT_CTRL'):
+        kmi = km.keymap_items.new(
+            "paint.bweight_gradient_invert_hold", key, 'PRESS',
+            any=True, repeat=False,
+        )
+        addon_keymaps.append((km, kmi))
+    # 2. A Ctrl+drag binding so the gradient still fires while Ctrl is held
+    #    (the stock binding requires no modifiers). No flip needed — the
+    #    inverted weight from part 1 does the actual inverting. Goes through
+    #    the wrapper so the tool's Linear/Radial header setting is honored.
+    km_tool = kc.keymaps.new(
+        name="3D View Tool: Paint Weight, Gradient", space_type='VIEW_3D',
+    )
+    kmi = km_tool.keymap_items.new(
+        "paint.bweight_gradient_ctrl", 'LEFTMOUSE', 'CLICK_DRAG', ctrl=True,
+    )
+    addon_keymaps.append((km_tool, kmi))
+
 
 def unregister():
     for km, kmi in addon_keymaps:
