@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bone Renamer — BlenderPlugins</title>
+<meta name="description" content="Rename armature bones between different naming conventions and optionally translate Japanese bone names to English.">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../../index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
+  </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="badges"><span class="badge">Rigging</span><span class="badge">Blender 4.0+</span><span class="badge">v1.2</span></div>
+      <h1>Bone Renamer</h1>
+      <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/BoneRenamer_v1.2/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/BoneRenamer_v1.2">Source</a></div>
+    </div>
+    <article>
+      <h2>Overview</h2>
+      <p>Rename armature bones between different naming conventions and optionally translate Japanese bone names to English.</p>
+      <h2>UI Location</h2>
+      <p>3D Viewport &rarr; Sidebar (<code>N</code>) &rarr; <strong>Animation</strong> tab &rarr; <strong>Bone Renamer</strong> panel.</p>
+      <h2>Features</h2>
+      <ul class="feature-list">
+      <li><strong>Multi-format renaming</strong>: Converts bone names between multiple formats (MMD English/Japanese, XNALara, DAZ/Poser, Rigify, Sims 2, Motion Builder, 3ds Max, BEPu, and custom/unknown).</li>
+      <li><strong>Finger support</strong>: Optional inclusion of finger bones in the renaming pass.</li>
+      <li><strong>Japanese &rarr; English translation</strong>: Replaces common Japanese bone name fragments with English equivalents.</li>
+      <li><strong>Viewport helper</strong>: Toggle visibility of bone names for all armatures in the scene.</li>
+    </ul>
+      <h2>Usage</h2>
+      <ol>
+      <li>Select an armature and pick it with the eyedropper in <strong>Armature</strong>.</li>
+      <li>Choose <strong>From</strong> and <strong>To</strong> formats (e.g. <em>MMD English</em> &rarr; <em>Rigify</em>).</li>
+      <li>Optionally enable <strong>Include Fingers</strong>.</li>
+      <li>Click <strong>Rename Bones</strong>.</li>
+      <li>(Optional) Use <strong>Translate Japanese Names</strong> on MMD-style rigs.</li>
+      <li>Use <strong>Toggle Names Display</strong> to quickly show/hide bone names in the viewport.</li>
+    </ol>
+    </article>
+    <div class="prevnext">
+      <span></span>
+      <a class="next" href="../bweight/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">Bweight</span></a>
+    </div>
+  </main>
+</div>
+<script>var NAV_BASE = "../../"; var NAV_CURRENT = "bone-renamer";</script>
+<script src="../../assets/nav.js"></script>
+</body>
+</html>

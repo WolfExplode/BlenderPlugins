@@ -1,4 +1,4 @@
-## Variable Playback Baker
+## Cyclic Animation Baker
 
 **File**: `cyclic animation.py`
 
@@ -11,7 +11,7 @@
 - **Bake to new animation**: Bakes the result to a new action, with an option to overwrite an existing bake.
 
 **UI location**
-- `3D Viewport` → Sidebar (`N`) → `Animation` tab → `Variable Playback Baker` panel.
+- `3D Viewport` → Sidebar (`N`) → `Animation` tab → `Cyclic Animation Baker` panel.
 
 **Basic usage**
 1. Pick a **Source Object** and **Source Action** with existing animation.

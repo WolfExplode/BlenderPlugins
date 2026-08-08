@@ -1,18 +1,37 @@
 ## HDRi Maker
 
-**File**: `__init__.py` (+ `HDRi_tools_lib`)
+UI Inspired by https://superhivemarket.com/products/hdri-maker
 
-**Purpose**: Browse a folder of HDRIs and apply them to the world with quick rotation/strength controls, without leaving the 3D Viewport.
+## Key features
+Browse a folder of HDRIs and apply them to the scene. Preview and pick HDRIs from a configured folder.
+You may download HDRIs for free at https://polyhaven.com/hdris
 
-**Key features**
-- **Thumbnail browser**: Preview and pick HDRIs from a configured folder.
-- **World controls**: Adjust rotation and strength directly from the sidebar.
-- **Cursor-relative light direction**: Rotate the environment relative to the 3D cursor / view.
+Attatchment
 
-**UI location**
-- `3D Viewport` → Sidebar (`N`) → `Hdri Maker` tab.
+Adjust rotation, brightness, transparency, contrast, blur, color, saturation.
 
-**Basic usage**
+Uses nodes
+
+Attatchment
+
+Attatchment
+
+Substance painter style hdri rotation
+Rotate HDR texture in 3D viewport. Hold down the Shift key and the Right Mouse Button (RMB) together, then drag your mouse left or right across the viewport. Drag on empty space rotates the hdri, otherwise, when dragging on objects, moves 3D cursor.
+
+Uses the same mechanism as https://github.com/AIGODLIKE/hdr_rotation
+
+Supports viewport solid view shadows rotation. Concept taken from https://extensions.blender.org/add-ons/hdrirotator/
+
+Attatchment
+
+
+## Basic usage
+Attatchment
+
 1. Set your HDRI folder in the addon preferences (or panel, if exposed there).
 2. Open the `Hdri Maker` sidebar tab and click a thumbnail to apply it to the world.
 3. Adjust rotation/strength sliders to taste.
+
+**UI location**
+- `3D Viewport` → Sidebar (`N`) → `Hdri Maker` tab.

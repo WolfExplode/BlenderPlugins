@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyclic Animation Baker — BlenderPlugins</title>
+<meta name="description" content="Bake a cyclic/looping animation (e.g. a walk cycle) onto a target&#x27;s timeline with a variable playback rate driven by a BPM curve, instead of a fixed constant speed.">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../../index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
+  </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="badges"><span class="badge">Animation</span><span class="badge">Blender 5.0+</span></div>
+      <h1>Cyclic Animation Baker</h1>
+      <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/cyclic%20animation/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/cyclic%20animation">Source</a></div>
+    </div>
+    <article>
+      <h2>Overview</h2>
+      <p>Bake a cyclic/looping animation (e.g. a walk cycle) onto a target's timeline with a variable playback rate driven by a BPM curve, instead of a fixed constant speed.</p>
+      <h2>UI Location</h2>
+      <p>3D Viewport &rarr; Sidebar (<code>N</code>) &rarr; <strong>Animation</strong> tab &rarr; <strong>Cyclic Animation Baker</strong> panel.</p>
+      <h2>Features</h2>
+      <ul class="feature-list">
+      <li><strong>BPM-driven playback</strong>: Reads a BPM curve (and optional strength-influence curve) to vary how fast the source animation plays back over time.</li>
+      <li><strong>Source animation support</strong>: Works with object animation data and shape key animation data.</li>
+      <li><strong>Keyframe / driver helpers</strong>: Keyframe the BPM value onto the source, or copy BPM as a new driver.</li>
+      <li><strong>Bake to new animation</strong>: Bakes the result to a new action, with an option to overwrite an existing bake.</li>
+    </ul>
+      <h2>Usage</h2>
+      <ol>
+      <li>Pick a <strong>Source Object</strong> and <strong>Source Action</strong> with existing animation.</li>
+      <li>Set up a BPM curve (and optionally a strength-influence curve) to control playback speed over time.</li>
+      <li>Click <strong>Bake</strong> to produce a new action where playback speed follows the BPM curve.</li>
+    </ol>
+    </article>
+    <div class="prevnext">
+      <a class="prev" href="../bweight/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">Bweight</span></a>
+      <a class="next" href="../geo-nodes-io/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">Import Export Geo Nodes</span></a>
+    </div>
+  </main>
+</div>
+<script>var NAV_BASE = "../../"; var NAV_CURRENT = "cyclic-animation-baker";</script>
+<script src="../../assets/nav.js"></script>
+</body>
+</html>

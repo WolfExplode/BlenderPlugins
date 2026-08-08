@@ -5,16 +5,16 @@ import random
 from bpy.props import PointerProperty, EnumProperty, BoolProperty, FloatProperty, IntProperty
 from bpy.types import PropertyGroup, Operator, Panel
 
-SCENE_KEY_BPM = "variable_playback_time_rate_pairs"
-SCENE_KEY_STRENGTH = "variable_playback_strength_influence_pairs"
-VARIABLE_PLAYBACK_BPM_PROP = "variable_playback_bpm"
+SCENE_KEY_BPM = "cyclic_animation_time_rate_pairs"
+SCENE_KEY_STRENGTH = "cyclic_animation_strength_influence_pairs"
+CYCLIC_ANIMATION_BPM_PROP = "cyclic_animation_bpm"
 CURVE_TIME_SCALE = 60.0  # curve X units → seconds (1/60 import scale)
 DEBUG = False
 
 
 def _debug_log(msg):
     if DEBUG:
-        print(f"VariablePlayback: {msg}")
+        print(f"CyclicAnimation: {msg}")
 
 
 def _get_action_slot_for_datablock(action, datablock):
@@ -164,7 +164,7 @@ def _unlink_action_for_removal(action):
 
 
 def action_enum_items(self, context):
-    props = context.scene.variable_playback_props
+    props = context.scene.cyclic_animation_props
     obj = props.source_object if props else getattr(self, "source_object", None)
     if not obj:
         return [("NONE", "No object selected", "")]
@@ -379,7 +379,7 @@ def read_curve_to_scene(context, curve_obj, scene_key, value_fn):
     return clean, None
 
 
-class VariablePlaybackProps(PropertyGroup):
+class CyclicAnimationProps(PropertyGroup):
     source_object: PointerProperty(type=bpy.types.Object)
     source_action_id: bpy.props.StringProperty(default="NONE", options={"HIDDEN"})
 
@@ -435,9 +435,9 @@ class VariablePlaybackProps(PropertyGroup):
     bake_overwrite_existing: BoolProperty(name="Overwrite Existing Bake", default=True)
 
 
-class VARIABLEPLAYBACK_PT_panel(Panel):
-    bl_label = "Variable Playback Baker"
-    bl_idname = "VARIABLEPLAYBACK_PT_panel"
+class CYCLICANIM_PT_panel(Panel):
+    bl_label = "Cyclic Animation Baker"
+    bl_idname = "CYCLICANIM_PT_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Animation"
@@ -450,7 +450,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         return bool(sk and sk.animation_data)
 
     def _draw_source(self, layout, props, context):
-        header, body = layout.panel("VARIABLEPLAYBACK_source", default_closed=False)
+        header, body = layout.panel("CYCLICANIM_source", default_closed=False)
         header.label(text="Source & Animation", icon="OUTLINER_OB_ARMATURE")
         if not body:
             return
@@ -483,7 +483,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             col.label(text=f"Base Duration: {(fr[1] - fr[0]) / fps:.2f}s", icon="PLAY")
 
     def _draw_speed(self, layout, props, context):
-        header, body = layout.panel("VARIABLEPLAYBACK_speed", default_closed=False)
+        header, body = layout.panel("CYCLICANIM_speed", default_closed=False)
         header.label(text="Speed", icon="TIME")
         if not body:
             return
@@ -496,18 +496,18 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             for t, bpm in pairs[:3]:
                 info.label(text=f"  t={t:.2f}s, BPM={bpm:.1f}")
         col = body.column(align=True)
-        col.operator("variable_playback.read_curve", icon="IMPORT")
+        col.operator("cyclic_animation.read_curve", icon="IMPORT")
         mesh_data = props.source_object.data if props.source_object else None
         is_mesh = isinstance(mesh_data, bpy.types.Mesh)
         row = col.row(align=True)
-        row.operator("variable_playback.keyframe_bpm_on_source", icon="KEYTYPE_KEYFRAME_VEC")
+        row.operator("cyclic_animation.keyframe_bpm_on_source", icon="KEYTYPE_KEYFRAME_VEC")
         row.enabled = SCENE_KEY_BPM in context.scene and props.source_object and is_mesh
         row = col.row(align=True)
-        row.operator("variable_playback.copy_bpm_as_new_driver", icon="DECORATE_DRIVER")
-        row.enabled = props.source_object and is_mesh and VARIABLE_PLAYBACK_BPM_PROP in mesh_data
+        row.operator("cyclic_animation.copy_bpm_as_new_driver", icon="DECORATE_DRIVER")
+        row.enabled = props.source_object and is_mesh and CYCLIC_ANIMATION_BPM_PROP in mesh_data
 
     def _draw_strength(self, layout, props, context):
-        header, body = layout.panel("VARIABLEPLAYBACK_strength", default_closed=False)
+        header, body = layout.panel("CYCLICANIM_strength", default_closed=False)
         header.label(text="Strength / Influence", icon="FORCE_FORCE")
         if not body:
             return
@@ -522,10 +522,10 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             info.label(text=f"Strength Data: {len(pairs)} points", icon="CHECKMARK")
             for t, influence in pairs[:3]:
                 info.label(text=f"  t={t:.2f}s, Influence={influence:.1%}")
-        body.operator("variable_playback.read_strength_curve", icon="IMPORT")
+        body.operator("cyclic_animation.read_strength_curve", icon="IMPORT")
 
     def _draw_variation(self, layout, props):
-        header, body = layout.panel("VARIABLEPLAYBACK_variation", default_closed=False)
+        header, body = layout.panel("CYCLICANIM_variation", default_closed=False)
         header.label(text="Random per Loop", icon="MODIFIER")
         if not body:
             return
@@ -552,7 +552,7 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             row.prop(props, "random_speed_max", text="Max")
 
     def _draw_bake(self, layout, props, context):
-        header, body = layout.panel("VARIABLEPLAYBACK_bake", default_closed=False)
+        header, body = layout.panel("CYCLICANIM_bake", default_closed=False)
         header.label(text="Bake & Output", icon="RENDER_ANIMATION")
         if not body:
             return
@@ -562,11 +562,11 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
             col.prop(props, "simplify_tolerance", slider=True)
         body.prop(props, "bake_overwrite_existing")
         row = body.row(align=True)
-        row.operator("variable_playback.bake", icon="REC")
+        row.operator("cyclic_animation.bake", icon="REC")
         row.enabled = SCENE_KEY_BPM in context.scene
 
     def draw(self, context):
-        props = context.scene.variable_playback_props
+        props = context.scene.cyclic_animation_props
         self._draw_source(self.layout, props, context)
         self._draw_speed(self.layout, props, context)
         self._draw_strength(self.layout, props, context)
@@ -574,13 +574,13 @@ class VARIABLEPLAYBACK_PT_panel(Panel):
         self._draw_bake(self.layout, props, context)
 
 
-class VARIABLEPLAYBACK_OT_read_curve(Operator):
-    bl_idname = "variable_playback.read_curve"
+class CYCLICANIM_OT_read_curve(Operator):
+    bl_idname = "cyclic_animation.read_curve"
     bl_label = "Read BPM Data"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.variable_playback_props
+        props = context.scene.cyclic_animation_props
         if not props.bpm_curve:
             self.report({"ERROR"}, "No speed curve selected")
             return {"CANCELLED"}
@@ -602,13 +602,13 @@ class VARIABLEPLAYBACK_OT_read_curve(Operator):
         return {"FINISHED"}
 
 
-class VARIABLEPLAYBACK_OT_read_strength_curve(Operator):
-    bl_idname = "variable_playback.read_strength_curve"
+class CYCLICANIM_OT_read_strength_curve(Operator):
+    bl_idname = "cyclic_animation.read_strength_curve"
     bl_label = "Read Strength Data"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.variable_playback_props
+        props = context.scene.cyclic_animation_props
         if not props.strength_curve:
             self.report({"ERROR"}, "No strength curve selected")
             return {"CANCELLED"}
@@ -628,13 +628,13 @@ class VARIABLEPLAYBACK_OT_read_strength_curve(Operator):
         return {"FINISHED"}
 
 
-class VARIABLEPLAYBACK_OT_keyframe_bpm_on_source(Operator):
-    bl_idname = "variable_playback.keyframe_bpm_on_source"
+class CYCLICANIM_OT_keyframe_bpm_on_source(Operator):
+    bl_idname = "cyclic_animation.keyframe_bpm_on_source"
     bl_label = "Keyframe BPM on Source Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.variable_playback_props
+        props = context.scene.cyclic_animation_props
         obj = props.source_object
         if not obj:
             self.report({"ERROR"}, "No source object selected")
@@ -648,7 +648,7 @@ class VARIABLEPLAYBACK_OT_keyframe_bpm_on_source(Operator):
             self.report({"ERROR"}, "No curve data loaded")
             return {"CANCELLED"}
 
-        prop_key = VARIABLE_PLAYBACK_BPM_PROP
+        prop_key = CYCLIC_ANIMATION_BPM_PROP
         data_path = f'["{prop_key}"]'
         if prop_key in mesh and not isinstance(mesh[prop_key], (int, float)):
             self.report({"ERROR"}, f"Custom property '{prop_key}' must be numeric")
@@ -659,7 +659,7 @@ class VARIABLEPLAYBACK_OT_keyframe_bpm_on_source(Operator):
             mesh.animation_data_create()
         if mesh.animation_data.action is None:
             mesh.animation_data.action = bpy.data.actions.new(
-                name=f"{mesh.name}_VariablePlaybackBPM"
+                name=f"{mesh.name}_CyclicAnimationBPM"
             )
 
         fps = context.scene.render.fps or 1
@@ -674,21 +674,21 @@ class VARIABLEPLAYBACK_OT_keyframe_bpm_on_source(Operator):
         return {"FINISHED"}
 
 
-class VARIABLEPLAYBACK_OT_copy_bpm_as_new_driver(Operator):
-    bl_idname = "variable_playback.copy_bpm_as_new_driver"
+class CYCLICANIM_OT_copy_bpm_as_new_driver(Operator):
+    bl_idname = "cyclic_animation.copy_bpm_as_new_driver"
     bl_label = "Copy as New Driver…"
     bl_options = {"REGISTER"}
 
     @classmethod
     def poll(cls, context):
-        props = context.scene.variable_playback_props
+        props = context.scene.cyclic_animation_props
         mesh = props.source_object.data if props and props.source_object else None
-        return isinstance(mesh, bpy.types.Mesh) and VARIABLE_PLAYBACK_BPM_PROP in mesh
+        return isinstance(mesh, bpy.types.Mesh) and CYCLIC_ANIMATION_BPM_PROP in mesh
 
     def draw(self, context):
-        mesh = context.scene.variable_playback_props.source_object.data
+        mesh = context.scene.cyclic_animation_props.source_object.data
         self.layout.label(text="Right-click the property, then Copy as New Driver")
-        self.layout.prop(mesh, f'["{VARIABLE_PLAYBACK_BPM_PROP}"]', text=VARIABLE_PLAYBACK_BPM_PROP)
+        self.layout.prop(mesh, f'["{CYCLIC_ANIMATION_BPM_PROP}"]', text=CYCLIC_ANIMATION_BPM_PROP)
 
     def invoke(self, context, event):
         if not self.poll(context):
@@ -700,13 +700,13 @@ class VARIABLEPLAYBACK_OT_copy_bpm_as_new_driver(Operator):
         return {"FINISHED"}
 
 
-class VARIABLEPLAYBACK_OT_bake(Operator):
-    bl_idname = "variable_playback.bake"
+class CYCLICANIM_OT_bake(Operator):
+    bl_idname = "cyclic_animation.bake"
     bl_label = "Bake"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        props = context.scene.variable_playback_props
+        props = context.scene.cyclic_animation_props
         pairs = context.scene.get(SCENE_KEY_BPM)
         strength_pairs = context.scene.get(SCENE_KEY_STRENGTH, [])
         strength_flat = props.strength_influence_flat
@@ -927,7 +927,7 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
         actual_end_frame = frame_data[-1][0] if frame_data else frame_end
         anim = target_datablock.animation_data
         track = anim.nla_tracks.new()
-        track.name = "Variable Playback"
+        track.name = "Cyclic Animation"
         strip = track.strips.new(baked_name, frame_start, baked_action)
         strip.frame_end = actual_end_frame
         strip.action_frame_start = frame_start
@@ -957,26 +957,26 @@ class VARIABLEPLAYBACK_OT_bake(Operator):
 
 
 classes = (
-    VariablePlaybackProps,
-    VARIABLEPLAYBACK_PT_panel,
-    VARIABLEPLAYBACK_OT_read_curve,
-    VARIABLEPLAYBACK_OT_read_strength_curve,
-    VARIABLEPLAYBACK_OT_keyframe_bpm_on_source,
-    VARIABLEPLAYBACK_OT_copy_bpm_as_new_driver,
-    VARIABLEPLAYBACK_OT_bake,
+    CyclicAnimationProps,
+    CYCLICANIM_PT_panel,
+    CYCLICANIM_OT_read_curve,
+    CYCLICANIM_OT_read_strength_curve,
+    CYCLICANIM_OT_keyframe_bpm_on_source,
+    CYCLICANIM_OT_copy_bpm_as_new_driver,
+    CYCLICANIM_OT_bake,
 )
 
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.variable_playback_props = PointerProperty(type=VariablePlaybackProps)
+    bpy.types.Scene.cyclic_animation_props = PointerProperty(type=CyclicAnimationProps)
 
 
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-    del bpy.types.Scene.variable_playback_props
+    del bpy.types.Scene.cyclic_animation_props
 
 
 if __name__ == "__main__":

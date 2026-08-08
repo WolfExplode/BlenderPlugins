@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScreenshotNodes — BlenderPlugins</title>
+<meta name="description" content="Capture high-quality screenshots of a node tree (entire tree or only selected nodes), auto-stitched from multiple tiles using OpenImageIO.">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../../index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
+  </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="badges"><span class="badge">Node</span><span class="badge">Blender 4.0+</span></div>
+      <h1>ScreenshotNodes</h1>
+      <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/ScreenshotNodes/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/ScreenshotNodes">Source</a></div>
+    </div>
+    <article>
+      <h2>Overview</h2>
+      <p>Capture high-quality screenshots of a node tree (entire tree or only selected nodes), auto-stitched from multiple tiles using OpenImageIO.</p>
+      <h2>UI Location</h2>
+      <ul>
+      <li><strong>Context Menu</strong> in the Node Editor &mdash; right-click &rarr; <strong>PrintNodes</strong> menu &rarr; <em>Take Screenshot Of Whole Tree</em> / <em>Take Screenshot Of Selected Nodes</em>.</li>
+      <li><strong>Preferences</strong>: <code>Edit</code> &rarr; <code>Preferences</code> &rarr; <code>Add-ons</code> &rarr; <strong>ScreenshotNodes</strong> to configure Secondary Directory, Always Use Secondary Directory, and Node Outline Color.</li>
+    </ul>
+      <h2>Features</h2>
+      <ul class="feature-list">
+      <li><strong>Whole-tree or selection capture</strong>: Screenshot the entire active node tree, or only the currently selected nodes.</li>
+      <li><strong>Tilized capture &amp; stitching</strong>: Uses a modal timer to pan the node editor and capture tiles, stitched into a single high-resolution image via OpenImageIO.</li>
+      <li><strong>Automatic cropping &amp; styling</strong>: Temporarily adjusts theme settings (grid, scrollbars, wire color, selection color) for clean output, then restores your theme and view settings afterwards.</li>
+      <li><strong>Configurable save location &amp; color</strong>: Defaults to a <code>NodesShots</code> subfolder next to the <code>.blend</code> file, with a configurable fallback directory and custom node outline color.</li>
+    </ul>
+      <h2>Usage</h2>
+      <ol>
+      <li>Open the desired node editor (Shader, Geometry, etc.) and set up your node tree.</li>
+      <li>Optionally select a subset of nodes if you only want a partial screenshot.</li>
+      <li>Right-click in the node editor and choose <strong>Take Screenshot Of Whole Tree</strong> or <strong>Take Screenshot Of Selected Nodes</strong>.</li>
+      <li>Wait for the modal capture to finish (cancel any time with Right Mouse or <code>Esc</code>).</li>
+      <li>The stitched screenshot is saved as <code>NodeTreeShotYYMMDD-HHMMSS.jpg</code> in the <code>NodesShots</code> folder next to your blend file, or the secondary directory from preferences.</li>
+    </ol>
+    </article>
+    <div class="prevnext">
+      <a class="prev" href="../open-console-startup/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">Open Console on Startup</span></a>
+      <a class="next" href="../symmetrize-plus/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">Symmetrize Plus</span></a>
+    </div>
+  </main>
+</div>
+<script>var NAV_BASE = "../../"; var NAV_CURRENT = "screenshot-nodes";</script>
+<script src="../../assets/nav.js"></script>
+</body>
+</html>

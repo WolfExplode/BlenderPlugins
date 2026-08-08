@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Target, Please! — BlenderPlugins</title>
+<meta name="description" content="Create a tracking target with a smart orbit pivot for cameras and lights &amp;mdash; orbit around a subject without manually parenting/unparenting.">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../../index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
+  </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="badges"><span class="badge">Object</span><span class="badge">Blender 4.2+</span><span class="badge">v1.3.1</span></div>
+      <h1>Target, Please!</h1>
+      <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Target%20Please/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Target%20Please">Source</a></div>
+    </div>
+    <article>
+      <h2>Overview</h2>
+      <p>Create a tracking target with a smart orbit pivot for cameras and lights &mdash; orbit around a subject without manually parenting/unparenting.</p>
+      <h2>UI Location</h2>
+      <p>3D Viewport &rarr; operator search / addon panel (see script for exact menu entry).</p>
+      <h2>Features</h2>
+      <ul class="feature-list">
+      <li><strong>Smart pivot empty</strong>: Adds a pivot empty that the camera/light orbits around.</li>
+      <li><strong>Auto Child Of</strong>: A <code>Child Of</code> constraint is added only while rotating the pivot (orbiting), and removed as soon as rotation ends or a move starts.</li>
+      <li><strong>Track To aiming</strong>: When not rotating, a <code>Track To</code> constraint keeps the camera/light aimed at the target.</li>
+    </ul>
+      <h2>Usage</h2>
+      <ol>
+      <li>Select the camera or light you want to orbit, then run the &ldquo;Target, Please!&rdquo; operator to create the pivot + target.</li>
+      <li>Use <code>R</code> (rotate) on the pivot to orbit &mdash; aiming and parenting are handled automatically.</li>
+      <li>Use <code>G</code>/<code>S</code> to move or scale as normal; the Child Of constraint is removed automatically.</li>
+    </ol>
+    </article>
+    <div class="prevnext">
+      <a class="prev" href="../symmetrize-plus/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">Symmetrize Plus</span></a>
+      <a class="next" href="../translate-shapekeys/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">translateShapekeysToEnglish</span></a>
+    </div>
+  </main>
+</div>
+<script>var NAV_BASE = "../../"; var NAV_CURRENT = "target-please";</script>
+<script src="../../assets/nav.js"></script>
+</body>
+</html>

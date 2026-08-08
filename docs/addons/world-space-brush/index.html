@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World-Space Brush — BlenderPlugins</title>
+<meta name="description" content="Keep the texture paint brush size consistent in world units (BU) instead of screen pixels, using the 3D cursor depth as reference.">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../../index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
+  </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="badges"><span class="badge">Paint</span><span class="badge">Blender 4.0+</span></div>
+      <h1>World-Space Brush</h1>
+      <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/world-space%20brush/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/world-space%20brush">Source</a></div>
+    </div>
+    <article>
+      <h2>Overview</h2>
+      <p>Keep the texture paint brush size consistent in <strong>world units</strong> (BU) instead of screen pixels, using the 3D cursor depth as reference.</p>
+      <h2>UI Location</h2>
+      <ul>
+      <li><strong>Texture Paint</strong> mode &rarr; 3D Viewport Sidebar &rarr; <strong>Tool</strong> tab &rarr; brush radius controls: <strong>Scene Radius</strong> toggle and <strong>Debug Overlay</strong> icon toggle.</li>
+      <li>Scene properties: <code>Scene.wltp</code> (main settings), <code>Scene.wltp_dbg</code> (debug overlay settings).</li>
+    </ul>
+      <h2>Features</h2>
+      <ul class="feature-list">
+      <li><strong>World-space brush radius</strong>: Computes how many pixels correspond to 1 Blender Unit at the 3D cursor and adjusts the brush pixel size so the on-mesh footprint stays constant when zooming, respecting Unified Size if enabled.</li>
+      <li><strong>Cursor-based depth</strong>: Uses the 3D cursor position as the depth reference for size calculations, with an optional operator to move the cursor to the paint surface on left mouse.</li>
+      <li><strong>Interactive adjustment</strong>: Press <code>F</code> in texture paint mode to change brush size as usual; on release, the addon updates the stored world-space diameter to match.</li>
+      <li><strong>Debug overlay</strong>: Optional viewport overlay showing pixels-per-unit at cursor and desired/applied brush radii, with console logging when enabled.</li>
+    </ul>
+      <h2>Usage</h2>
+      <ol>
+      <li>Enter <strong>Texture Paint</strong> mode and select a paint brush.</li>
+      <li>Enable <strong>Scene Radius</strong> in the brush settings UI.</li>
+      <li>Place the 3D cursor at the typical painting depth (LMB with the addon&rsquo;s cursor operator, or Shift+RMB).</li>
+      <li>Optionally press <code>F</code>, pick a brush size you like, and release &mdash; this redefines the world-space diameter.</li>
+      <li>Zoom in/out and keep painting: the visible brush footprint on the surface stays approximately constant in world units.</li>
+    </ol>
+      <p>Additional operator <code>paint.cursor_on_lmb</code>: in Texture Paint mode, intercepts Left Mouse to snap the 3D cursor to the clicked surface (same action as Shift+RMB), keeping the world-size reference tracked to where you paint.</p>
+    </article>
+    <div class="prevnext">
+      <a class="prev" href="../translate-shapekeys/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">translateShapekeysToEnglish</span></a>
+      <span></span>
+    </div>
+  </main>
+</div>
+<script>var NAV_BASE = "../../"; var NAV_CURRENT = "world-space-brush";</script>
+<script src="../../assets/nav.js"></script>
+</body>
+</html>

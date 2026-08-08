@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guard Edit Mode for MACHIN3tools — BlenderPlugins</title>
+<meta name="description" content="Prevent entering Edit Mode on extremely heavy meshes by patching MACHIN3tools operators and &lt;code&gt;object.mode_set&lt;/code&gt;, with optional debug logging.">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../../index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
+  </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
+    <div class="page-head">
+      <div class="badges"><span class="badge">System</span><span class="badge">Blender 4.0+</span></div>
+      <h1>Guard Edit Mode for MACHIN3tools</h1>
+      <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Guard%20Edit%20Mode%20for%20MACHIN3tools/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Guard%20Edit%20Mode%20for%20MACHIN3tools">Source</a></div>
+    </div>
+    <article>
+      <h2>Overview</h2>
+      <p>Prevent entering Edit Mode on extremely heavy meshes by patching MACHIN3tools operators and <code>object.mode_set</code>, with optional debug logging.</p>
+      <h2>UI Location</h2>
+      <p><code>Edit</code> &rarr; <code>Preferences</code> &rarr; <code>Add-ons</code> &rarr; search for <strong>Guard Edit Mode for MACHIN3tools (debug)</strong>.</p>
+      <h2>Features</h2>
+      <ul class="feature-list">
+      <li><strong>Vertex-count guard</strong>: Checks the active mesh&rsquo;s vertex count before allowing Edit Mode, and blocks it when the count exceeds a configurable threshold.</li>
+      <li><strong>Operator patching</strong>: Wraps <code>machin3.edit_mode</code>, <code>machin3.mesh_mode</code>, and <code>object.mode_set</code> to enforce the guard, handling both <code>execute()</code> and <code>invoke()</code> where needed.</li>
+      <li><strong>User preferences</strong>: <strong>Vertex Threshold</strong> sets the maximum allowed vertices; <strong>Enable debug logging</strong> prints detailed events and errors to the system console.</li>
+      <li><strong>Non-destructive</strong>: On unregister, restores original operator methods.</li>
+    </ul>
+      <h2>Usage</h2>
+      <ol>
+      <li>Install and enable the addon.</li>
+      <li>In the add-on preferences, set <strong>Vertex Threshold</strong> (e.g. <code>1,000,000</code>) and optionally enable <strong>debug logging</strong> to see guard decisions in the console.</li>
+      <li>Use MACHIN3tools (or <code>Tab</code>/mode switching) as usual &mdash; if the active mesh exceeds the threshold when attempting to enter Edit Mode, a popup warns you and the action is cancelled.</li>
+      <li>Disable or uninstall the addon to remove all patches and restore original behavior.</li>
+    </ol>
+    </article>
+    <div class="prevnext">
+      <a class="prev" href="../gizmo-plus/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">Gizmo Plus</span></a>
+      <a class="next" href="../hdri-maker/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">HDRi Maker</span></a>
+    </div>
+  </main>
+</div>
+<script>var NAV_BASE = "../../"; var NAV_CURRENT = "guard-edit-mode";</script>
+<script src="../../assets/nav.js"></script>
+</body>
+</html>

@@ -3,252 +3,67 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BlenderPlugins — WXP</title>
+<title>BlenderPlugins — BlenderPlugins</title>
 <meta name="description" content="A collection of Blender add-ons and scripts for rigging, weight painting, animation, and viewport tools.">
-<style>
-  :root {
-    --bg: #ffffff;
-    --bg-alt: #f5f5f7;
-    --text: #1a1a1e;
-    --text-muted: #5a5a63;
-    --border: #e2e2e6;
-    --accent: #d97b3f;
-    --code-bg: #f0efec;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16161a;
-      --bg-alt: #1d1d22;
-      --text: #ececef;
-      --text-muted: #9a9aa2;
-      --border: #2c2c33;
-      --accent: #e59a63;
-      --code-bg: #232329;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.5;
-  }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
-  header h1 { font-size: 1.9rem; margin: 0 0 .4rem; }
-  header p { color: var(--text-muted); max-width: 60ch; margin: 0 0 .5rem; }
-  header .links { margin-top: 1rem; font-size: .95rem; }
-  header .links a { color: var(--accent); text-decoration: none; margin-right: 1.2rem; }
-  header .links a:hover { text-decoration: underline; }
-  .section-title {
-    margin: 2.5rem 0 .8rem;
-    font-size: .78rem;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border);
-    padding-bottom: .4rem;
-  }
-  .grid { display: grid; gap: .9rem; }
-  .card {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1rem 1.2rem;
-    background: var(--bg-alt);
-  }
-  .card-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: .6rem;
-    flex-wrap: wrap;
-  }
-  .card-head h3 { margin: 0; font-size: 1.05rem; }
-  .badge {
-    font-size: .7rem;
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: .1rem .55rem;
-    white-space: nowrap;
-  }
-  .card p.desc { margin: .45rem 0 .6rem; color: var(--text-muted); font-size: .92rem; }
-  .card .meta { font-size: .8rem; color: var(--text-muted); margin-bottom: .5rem; }
-  .card .actions a {
-    font-size: .85rem;
-    color: var(--accent);
-    text-decoration: none;
-    margin-right: 1rem;
-  }
-  .card .actions a:hover { text-decoration: underline; }
-  code { background: var(--code-bg); border-radius: 4px; padding: .1rem .35rem; font-size: .85em; }
-  footer { margin-top: 3rem; color: var(--text-muted); font-size: .85rem; }
-  footer a { color: var(--accent); }
-</style>
+<link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>BlenderPlugins</h1>
-    <p>A collection of small Blender add-ons and scripts — rigging, weight painting, animation, and viewport tools — built to smooth out day-to-day workflow gaps.</p>
-    <div class="links">
-      <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
-      <a href="https://github.com/WolfExplode/BlenderPlugins#installation">Installation</a>
-    </div>
-  </header>
-
-  <h2 class="section-title" id="installation">Installation</h2>
-  <p style="color:var(--text-muted); font-size:.92rem; max-width:65ch;">
-    Each add-on below is a single file or self-contained folder — no shared dependencies between them.
-    Download the file/folder, then in Blender go to <code>Edit → Preferences → Add-ons → Install…</code>
-    and pick it (zip the folder first if it contains multiple files). Enable the checkbox to activate.
-  </p>
-
-  <h2 class="section-title">Add-ons</h2>
-  <div class="grid">
-
-    <div class="card">
-      <div class="card-head"><h3>Bone Renamer</h3><span class="badge">Rigging</span></div>
-      <p class="desc">Rename armature bones between naming conventions (MMD, XNALara, DAZ/Poser, Rigify, Sims 2, Motion Builder, 3ds Max, BEPu) and translate Japanese bone names to English.</p>
-      <div class="meta">Blender 4.0+ &middot; v1.2</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/BoneRenamer_v1.2/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/BoneRenamer_v1.2">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Bweight</h3><span class="badge">Paint</span></div>
-      <p class="desc">Keyboard-driven weight painting: smooth/sharpen and grow/shrink the active group without leaving the brush, plus scoped auto-normalize across selected bones.</p>
-      <div class="meta">Blender 4.0+ &middot; v0.1</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Bweight/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Bweight">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Variable Playback Baker</h3><span class="badge">Animation</span></div>
-      <p class="desc">Bake a cyclic animation (e.g. a walk cycle) with playback speed driven by a BPM curve instead of a fixed rate.</p>
-      <div class="meta">Blender 5.0+</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/cyclic%20animation/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/cyclic%20animation">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Import Export Geo Nodes</h3><span class="badge">Node</span></div>
-      <p class="desc">Export a Geometry Nodes tree to JSON and rebuild it from JSON — handy for sharing node setups as text.</p>
-      <div class="meta">Blender 5.1+ &middot; v1.0</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/ExportImportGeoNodes/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/ExportImportGeoNodes">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Gizmo Plus</h3><span class="badge">3D View</span></div>
-      <p class="desc">Keeps the transform gizmo pinned on screen when its object moves out of view — a Softimage-style transform manipulator.</p>
-      <div class="meta">Blender 4.0+ &middot; v3.1</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/gizmo_plus/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/gizmo_plus">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Guard Edit Mode for MACHIN3tools</h3><span class="badge">System</span></div>
-      <p class="desc">Blocks entering Edit Mode on extremely heavy meshes by patching MACHIN3tools operators and <code>object.mode_set</code>, with a configurable vertex threshold.</p>
-      <div class="meta">Blender 4.0+</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Guard%20Edit%20Mode%20for%20MACHIN3tools/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Guard%20Edit%20Mode%20for%20MACHIN3tools">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>HDRi Maker</h3><span class="badge">3D View</span></div>
-      <p class="desc">Browse and apply HDRIs from a folder with quick world rotation/strength controls, right from the viewport sidebar.</p>
-      <div class="meta">Blender 5.0+ &middot; v1.0</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/hdri_maker/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/hdri_maker">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Open Console on Startup</h3><span class="badge">System</span></div>
-      <p class="desc">Opens the system console (Windows) on the second monitor, top-left, whenever Blender starts.</p>
-      <div class="meta">Blender 3.2+ &middot; v1.0 &middot; single file</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Open_console_on_startup.py">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>ScreenshotNodes</h3><span class="badge">Node</span></div>
-      <p class="desc">Captures high-quality, auto-stitched screenshots of a node tree (whole tree or just the selection).</p>
-      <div class="meta">Blender 4.0+</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/ScreenshotNodes/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/ScreenshotNodes">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Symmetrize Plus</h3><span class="badge">Mesh</span></div>
-      <p class="desc">Symmetrize with a flick gizmo — drag toward an axis/direction instead of digging through menus. Works in Edit Mesh, Sculpt, and Weight Paint.</p>
-      <div class="meta">Blender 4.0+ &middot; v0.1.7</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Symmetrize_Plus/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Symmetrize_Plus">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Target, Please!</h3><span class="badge">Object</span></div>
-      <p class="desc">Creates a tracking target with a smart orbit pivot for cameras and lights — parenting/aiming is handled automatically while you orbit.</p>
-      <div class="meta">Blender 4.2+ &middot; v1.3.1</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Target%20Please/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Target%20Please">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>translateShapekeysToEnglish</h3><span class="badge">Rigging</span></div>
-      <p class="desc">Renames Japanese shape keys (common on MMD-imported models) to their English equivalents using a lookup table.</p>
-      <div class="meta">Blender 3.2+ &middot; v1.0</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/translateShapekeysToEnglish/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/translateShapekeysToEnglish">Source</a>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>World-Space Brush</h3><span class="badge">Paint</span></div>
-      <p class="desc">Keeps the texture paint brush size constant in world units (Blender Units) instead of screen pixels, using the 3D cursor as depth reference.</p>
-      <div class="meta">Blender 4.0+</div>
-      <div class="actions">
-        <a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/world-space%20brush/README.md">Docs</a>
-        <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/world-space%20brush">Source</a>
-      </div>
-    </div>
-
+<header class="topbar">
+  <a class="brand" href="index.html">
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+    BlenderPlugins
+  </a>
+  <div class="top-links">
+    <a href="https://github.com/WolfExplode/BlenderPlugins">Source on GitHub</a>
   </div>
+</header>
+<div class="body">
+  <nav class="sidebar"><div id="sidebar-mount"></div></nav>
+  <main class="content">
 
-  <h2 class="section-title">Archived</h2>
-  <p style="color:var(--text-muted); font-size:.92rem;">
-    Older add-ons that are no longer maintained live in
-    <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Archive" style="color:var(--accent);">/Archive</a>
-    for reference.
-  </p>
+    <div class="hero">
+      <h1>BlenderPlugins</h1>
+      <p>A collection of small Blender add-ons and scripts &mdash; rigging, weight painting, animation, and viewport tools &mdash; built to smooth out day-to-day workflow gaps. Pick an add-on from the sidebar for details, or browse the list below.</p>
+    </div>
 
-  <footer>
-    Built and maintained by <a href="https://github.com/WolfExplode">WolfExplode</a>.
-    <a href="https://github.com/WolfExplode/BlenderPlugins">View source</a>.
-  </footer>
+    <h2 class="section-title" id="installation">Installation</h2>
+    <p>Each add-on is a single file or self-contained folder &mdash; no shared dependencies between them.
+    Download the file/folder, then in Blender go to
+    <code>Edit &rarr; Preferences &rarr; Add-ons &rarr; Install&hellip;</code>
+    and pick it (zip the folder first if it contains multiple files). Enable the checkbox to activate.</p>
+
+    <h2 class="section-title">Add-ons</h2>
+    <table class="addon-table">
+      <thead><tr><th>Add-on</th><th>Category</th><th>Blender</th></tr></thead>
+      <tbody>
+        <tr><td><a href="addons/bone-renamer/index.html">Bone Renamer</a></td><td>Rigging</td><td>4.0+</td></tr>
+        <tr><td><a href="addons/bweight/index.html">Bweight</a></td><td>Paint</td><td>4.0+</td></tr>
+        <tr><td><a href="addons/cyclic-animation-baker/index.html">Cyclic Animation Baker</a></td><td>Animation</td><td>5.0+</td></tr>
+        <tr><td><a href="addons/geo-nodes-io/index.html">Import Export Geo Nodes</a></td><td>Node</td><td>5.1+</td></tr>
+        <tr><td><a href="addons/gizmo-plus/index.html">Gizmo Plus</a></td><td>3D View</td><td>4.0+</td></tr>
+        <tr><td><a href="addons/guard-edit-mode/index.html">Guard Edit Mode for MACHIN3tools</a></td><td>System</td><td>4.0+</td></tr>
+        <tr><td><a href="addons/hdri-maker/index.html">HDRi Maker</a></td><td>3D View</td><td>5.0+</td></tr>
+        <tr><td><a href="addons/open-console-startup/index.html">Open Console on Startup</a></td><td>System</td><td>3.2+</td></tr>
+        <tr><td><a href="addons/screenshot-nodes/index.html">ScreenshotNodes</a></td><td>Node</td><td>4.0+</td></tr>
+        <tr><td><a href="addons/symmetrize-plus/index.html">Symmetrize Plus</a></td><td>Mesh</td><td>4.0+</td></tr>
+        <tr><td><a href="addons/target-please/index.html">Target, Please!</a></td><td>Object</td><td>4.2+</td></tr>
+        <tr><td><a href="addons/translate-shapekeys/index.html">translateShapekeysToEnglish</a></td><td>Rigging</td><td>3.2+</td></tr>
+        <tr><td><a href="addons/world-space-brush/index.html">World-Space Brush</a></td><td>Paint</td><td>4.0+</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="section-title">Archived</h2>
+    <p>Older add-ons that are no longer maintained live in
+    <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Archive">/Archive</a> for reference.</p>
+
+    <footer class="site-footer">
+      Built and maintained by <a href="https://github.com/WolfExplode">WolfExplode</a>.
+      <a href="https://github.com/WolfExplode/BlenderPlugins">View source</a>.
+    </footer>
+
+  </main>
 </div>
+<script>var NAV_BASE = ""; var NAV_CURRENT = "home";</script>
+<script src="assets/nav.js"></script>
 </body>
 </html>

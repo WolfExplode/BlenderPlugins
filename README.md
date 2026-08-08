@@ -10,7 +10,7 @@ A collection of Blender add-ons and scripts for rigging, weight painting, animat
 |---|---|---|
 | [Bone Renamer](BoneRenamer_v1.2) | Rigging | Rename armature bones between naming conventions; JP→EN translation |
 | [Bweight](Bweight) | Paint | Keyboard-driven weight smooth/sharpen/grow/shrink + scoped auto-normalize |
-| [Variable Playback Baker](cyclic%20animation) | Animation | Bake cyclic animation with BPM-driven variable playback speed |
+| [Cyclic Animation Baker](cyclic%20animation) | Animation | Bake cyclic animation with BPM-driven variable playback speed |
 | [Import Export Geo Nodes](ExportImportGeoNodes) | Node | Export/import Geometry Nodes trees via JSON |
 | [Gizmo Plus](gizmo_plus) | 3D View | Keeps the transform gizmo on screen when its object is off-view |
 | [Guard Edit Mode for MACHIN3tools](Guard%20Edit%20Mode%20for%20MACHIN3tools) | System | Blocks Edit Mode on meshes over a vertex threshold |
