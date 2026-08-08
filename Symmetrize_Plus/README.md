@@ -1,18 +1,25 @@
 ## Symmetrize Plus
 
-**File**: `Symmetrize_Plus.py`
+The UI is taken from [Machin3tools symmetrize](https://machin3.io/MESHmachine/docs/symmetrize/)
 
-**Purpose**: Symmetrize with a flick gizmo — pick an axis and direction interactively instead of digging through the standard menu options.
+Symmetrize with a flick gizmo. Unlike Machin3tools's symmetrize. This is made to work with weights and vertex groups. Works in Edit Mesh, Sculpt, and Weight Paint.
 
-**Key features**
-- **Flick gizmo**: Drag toward an axis/direction to symmetrize; a status-bar readout shows the active choice.
-- **Multi-mode support**: Works in Edit Mesh, Sculpt, and Weight Paint.
-- **Custom normal handling**: Fix-center options for clearing or transferring normals across the symmetry plane.
 
-**UI location**
-- `Edit Mesh` / `Sculpt` / `Weight Paint` → hotkey **Alt+X**.
+## Edit mode usage
+
+Attatchment
+
+
+## Symmetrize weight paints
+
+Attatchment
+
+
 
 **Basic usage**
 1. Enter Edit Mesh, Sculpt, or Weight Paint mode.
 2. Press **Alt+X** and flick toward the axis/direction you want to symmetrize from.
 3. Release to confirm, or cancel with Esc/right-click.
+
+**UI location**
+- `Edit Mesh` / `Sculpt` / `Weight Paint` → hotkey **Alt+X**.

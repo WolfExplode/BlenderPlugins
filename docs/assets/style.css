@@ -183,6 +183,18 @@ article p { margin: .6rem 0; }
   border: 1px solid var(--border);
   margin: 1rem 0;
 }
+article img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin: 1rem 0;
+}
+article h3 {
+  font-size: 1rem;
+  margin: 1.6rem 0 .5rem;
+}
 
 .prevnext {
   display: flex;

@@ -27,16 +27,30 @@
     </div>
     <article>
       <h2>Overview</h2>
-      <p>Browse a folder of HDRIs and apply them to the world with quick rotation/strength controls, without leaving the 3D Viewport.</p>
+      <p>UI inspired by <a href="https://superhivemarket.com/products/hdri-maker">HDRi Maker on the Blender Market</a>.</p>
+
+      <h2>Key Features</h2>
+
+      <h3>Browse a folder of HDRIs and apply them to the scene</h3>
+      <p>Preview and pick HDRIs from a configured folder. You may download HDRIs for free at <a href="https://polyhaven.com/hdris">polyhaven.com/hdris</a>.</p>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/715338eb-bf41-493a-95f2-42bfda767f89"></video>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/b56cd0fd-faed-438c-9ee4-b104f6f1d672"></video>
+
+      <h3>Adjust rotation, brightness, transparency, contrast, blur, color, saturation</h3>
+      <p>Uses nodes:</p>
+      <img src="https://github.com/user-attachments/assets/09b41fae-db65-4c0e-9a27-f79f3fc9d607" alt="HDRi Maker node setup" width="2365" height="930">
+
+      <h3>Substance Painter&ndash;style HDRI rotation</h3>
+      <p>Rotate the HDR texture in the 3D viewport. Hold down the <strong>Shift</strong> key and the <strong>Right Mouse Button</strong> together, then drag left or right across the viewport. Dragging on empty space rotates the HDRI; dragging on objects moves the 3D cursor instead.</p>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/8a3c1c17-1d27-47c7-9878-b82ea13f9762"></video>
+      <p>Uses the same mechanism as <a href="https://github.com/AIGODLIKE/hdr_rotation">AIGODLIKE/hdr_rotation</a>.</p>
+      <p>Supports viewport solid-view shadow rotation &mdash; concept taken from <a href="https://extensions.blender.org/add-ons/hdrirotator/">HDRi Rotator</a>.</p>
+
       <h2>UI Location</h2>
       <p>3D Viewport &rarr; Sidebar (<code>N</code>) &rarr; <strong>Hdri Maker</strong> tab.</p>
-      <h2>Features</h2>
-      <ul class="feature-list">
-      <li><strong>Thumbnail browser</strong>: Preview and pick HDRIs from a configured folder.</li>
-      <li><strong>World controls</strong>: Adjust rotation and strength directly from the sidebar.</li>
-      <li><strong>Cursor-relative light direction</strong>: Rotate the environment relative to the 3D cursor / view.</li>
-    </ul>
-      <h2>Usage</h2>
+
+      <h2>Basic Usage</h2>
+      <img src="https://github.com/user-attachments/assets/38dc969f-5207-4ec7-8808-b16ce9526898" alt="HDRi Maker library panel" width="645" height="120">
       <ol>
       <li>Set your HDRI folder in the addon preferences (or panel, if exposed there).</li>
       <li>Open the <strong>Hdri Maker</strong> sidebar tab and click a thumbnail to apply it to the world.</li>
