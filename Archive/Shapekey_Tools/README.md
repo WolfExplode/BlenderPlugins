@@ -1,3 +1,6 @@
+# this tool is now redundant as functionality has been merged into https://github.com/WolfExplode/mio3_shape_keys_english
+
+
 ## Shapekey Tools
 
 **File**: `Shapekey_Tools.py`
