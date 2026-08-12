@@ -1,18 +1,26 @@
-## Target, Please!
+# Tracking Camera Rig
+A camera rig addon made by combining the [original addon](https://ilyassel.gumroad.com/l/TargetIt) by Ilyasse Lojdi, with the standard [blender camera rig](https://extensions.blender.org/add-ons/add-camera-rigs/) 
+Easy and quick to use. No more complicated camera rigs or armatures. This plugin handles the majority of camera rig functionality programmatically. 
 
-**File**: `Target Please.py`
+Made for Blender 4.2+
 
-**Purpose**: Create a tracking target with a smart orbit pivot for cameras and lights — orbit around a subject without manually parenting/unparenting.
+## **Key features**
+You can keyframe the camera and the tracker separately and simultaneously. You can keyframe the rotation while maintaining tracking.
 
-**Key features**
-- **Smart pivot empty**: Adds a pivot empty that the camera/light orbits around.
-- **Auto Child Of**: A `Child Of` constraint is added only while rotating the pivot (orbiting), and removed as soon as rotation ends or a move starts.
-- **Track To aiming**: When not rotating, a `Track To` constraint keeps the camera/light aimed at the target.
+https://github.com/user-attachments/assets/695fa295-c0c2-4f7a-8782-8704ee49aab1
 
-**UI location**
+Dolly Zoom by scaling the target empty
+
+https://github.com/user-attachments/assets/142088fa-b248-4e87-8791-954cb5d172e0
+
+## **Basic usage**
+- Select any amount of objects
+- Press Shift+T for tracking 
+- Use Ctrl+Shift+T to adjust advanced settings
+
+Rotate the targeter to orbit the camera around the target.
+
+https://github.com/user-attachments/assets/f68769c0-0b5e-46ee-9423-a3c257e00508
+
+### **UI location**
 - `3D Viewport` → operator search / addon panel (see script for exact menu entry).
-
-**Basic usage**
-1. Select the camera or light you want to orbit, then run the "Target, Please!" operator to create the pivot + target.
-2. Use **R** (rotate) on the pivot to orbit — aiming and parenting are handled automatically.
-3. Use **G**/**S** to move or scale as normal; the Child Of constraint is removed automatically.
