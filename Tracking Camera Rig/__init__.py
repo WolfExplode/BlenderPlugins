@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Target, Please!",
+    "name": "Tracking Camera Rig",
     "author": "Ilyasse Lm, WXP",
     "version": (1, 3, 3),
     "blender": (4, 2, 0),
@@ -651,7 +651,8 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
             and event.value == 'PRESS'
         ):
             wheel_step = 0.1
-            delta = wheel_step if event.type == 'WHEELUPMOUSE' else -wheel_step
+            # A camera looks down its local -Z, so scrolling up moves it in.
+            delta = -wheel_step if event.type == 'WHEELUPMOUSE' else wheel_step
             for name in self._orbit_object_names:
                 obj = bpy.data.objects.get(name)
                 if obj:
