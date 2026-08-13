@@ -22,5 +22,9 @@ Rotate the targeter to orbit the camera around the target.
 
 https://github.com/user-attachments/assets/f68769c0-0b5e-46ee-9423-a3c257e00508
 
+Grab the empty via G and scroll wheel zoom to move the camera closer or further away
+
+
+
 ### **UI location**
 - `3D Viewport` → operator search / addon panel (see script for exact menu entry).

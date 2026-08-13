@@ -1,19 +1,19 @@
 bl_info = {
     "name": "Target, Please!",
     "author": "Ilyasse Lm, WXP",
-    "version": (1, 3, 1),
+    "version": (1, 3, 2),
     "blender": (4, 2, 0),
     "location": "3D View",
     "description": (
-        "Creates tracking target with smart orbit pivot. "
-        "Child Of is added only while rotating the pivot empty (camera/light orbits); "
-        "it is removed when rotate ends and when move starts if present. Track To handles aiming when not rotating."
+        """A camera rig addon made by combining the [original addon](https://ilyassel.gumroad.com/l/TargetIt) by Ilyasse Lojdi, with the standard [blender camera rig](https://extensions.blender.org/add-ons/add-camera-rigs/)
+Easy and quick to use. No more complicated camera rigs or armatures. This plugin handles the majority of camera rig functionality programmatically."""
     ),
     "category": "Object",
 }
 
 import bpy
 import json
+from contextlib import contextmanager
 from mathutils import Vector
 from bpy_extras import view3d_utils
 from bpy.app.handlers import persistent
@@ -31,6 +31,26 @@ _DZ_KEYS = (
     "camera", "base_scale", "base_camera_world_pos", "base_lens",
     "base_dist", "local_z_world", "lens_min", "lens_max",
 )
+
+
+# Live orbit sessions (ids of running rotate spies). LiveTarget_ChildOf is only
+# allowed to exist while one of these is open.
+_ROTATE_SESSIONS = set()
+
+# Depth of in-progress constraint surgery. The helpers below force view layer
+# updates mid-edit, which re-enters depsgraph_update_post; the safety net has to
+# stay out until the stack they are building is complete.
+_NET_SUSPEND = 0
+
+
+@contextmanager
+def _suspend_childof_net():
+    global _NET_SUSPEND
+    _NET_SUSPEND += 1
+    try:
+        yield
+    finally:
+        _NET_SUSPEND -= 1
 
 
 def _active_smart_pivot_empty(context):
@@ -137,10 +157,6 @@ def _linked_smart_pivot_empty_from_orbit_object(obj):
     return None
 
 
-def _has_live_target_childof(obj, empty):
-    return any(c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf') and c.target == empty for c in obj.constraints)
-
-
 def _find_live_target_track_to_index(obj):
     return next((i for i, c in enumerate(obj.constraints) if c.type == 'TRACK_TO' and c.name.startswith('LiveTarget_TrackTo')), None)
 
@@ -171,26 +187,33 @@ def _apply_live_target_childof(scene, obj, empty):
     ]
     if not to_remove:
         return
-    _smart_pivot_view_layers_update(scene)
-    try:
-        dg = ctx.evaluated_depsgraph_get()
-    except Exception:
-        dg = None
-    if dg is not None:
+    with _suspend_childof_net():
+        _smart_pivot_view_layers_update(scene)
         try:
-            ev = obj.evaluated_get(dg)
-            obj.matrix_world = ev.matrix_world.copy()
+            dg = ctx.evaluated_depsgraph_get()
         except Exception:
-            pass
-    for c in to_remove:
-        try:
-            obj.constraints.remove(c)
-        except Exception:
-            pass
+            dg = None
+        if dg is not None:
+            try:
+                ev = obj.evaluated_get(dg)
+                obj.matrix_world = ev.matrix_world.copy()
+            except Exception:
+                pass
+        for c in to_remove:
+            try:
+                obj.constraints.remove(c)
+            except Exception:
+                pass
 
 
 def _apply_live_target_trackto(scene, obj, empty):
-    """Bake current evaluated transform, then remove LiveTarget Track To."""
+    """Bake current evaluated transform, then remove LiveTarget Track To.
+
+    Caller must remove LiveTarget Child Of first. Assigning matrix_world writes the
+    basis matrix, so baking the evaluated transform while Child Of is still live
+    folds the empty's rotation into the basis and lets the constraint apply it a
+    second time.
+    """
     ctx = bpy.context
     to_remove = [
         c for c in list(obj.constraints)
@@ -198,22 +221,23 @@ def _apply_live_target_trackto(scene, obj, empty):
     ]
     if not to_remove:
         return
-    _smart_pivot_view_layers_update(scene)
-    try:
-        dg = ctx.evaluated_depsgraph_get()
-    except Exception:
-        dg = None
-    if dg is not None:
+    with _suspend_childof_net():
+        _smart_pivot_view_layers_update(scene)
         try:
-            ev = obj.evaluated_get(dg)
-            obj.matrix_world = ev.matrix_world.copy()
+            dg = ctx.evaluated_depsgraph_get()
         except Exception:
-            pass
-    for c in to_remove:
-        try:
-            obj.constraints.remove(c)
-        except Exception:
-            pass
+            dg = None
+        if dg is not None:
+            try:
+                ev = obj.evaluated_get(dg)
+                obj.matrix_world = ev.matrix_world.copy()
+            except Exception:
+                pass
+        for c in to_remove:
+            try:
+                obj.constraints.remove(c)
+            except Exception:
+                pass
 
 
 def _ensure_live_target_constraint_order(obj, empty):
@@ -232,23 +256,24 @@ def _ensure_live_target_constraint_order(obj, empty):
 def _recreate_live_target_childof(scene, obj, empty):
     """Bake off any existing LiveTarget Child Of, then re-add and keep it below Track To."""
     _apply_live_target_childof(scene, obj, empty)
-    child_of = obj.constraints.new(type='CHILD_OF')
-    child_of.name = "LiveTarget_ChildOf"
-    child_of.target = empty
-    for axis in 'xyz':
-        setattr(child_of, f'use_location_{axis}', True)
-        setattr(child_of, f'use_rotation_{axis}', True)
-        setattr(child_of, f'use_scale_{axis}', False)
-    _ensure_live_target_constraint_order(obj, empty)
-    _smart_pivot_view_layers_update(scene)
-    try:
-        child_of.set_inverse_pending = True
+    with _suspend_childof_net():
+        child_of = obj.constraints.new(type='CHILD_OF')
+        child_of.name = "LiveTarget_ChildOf"
+        child_of.target = empty
+        for axis in 'xyz':
+            setattr(child_of, f'use_location_{axis}', True)
+            setattr(child_of, f'use_rotation_{axis}', True)
+            setattr(child_of, f'use_scale_{axis}', False)
+        _ensure_live_target_constraint_order(obj, empty)
         _smart_pivot_view_layers_update(scene)
-    except Exception:
         try:
-            obj.constraints.remove(child_of)
+            child_of.set_inverse_pending = True
+            _smart_pivot_view_layers_update(scene)
         except Exception:
-            pass
+            try:
+                obj.constraints.remove(child_of)
+            except Exception:
+                pass
 
 
 def _recreate_live_target_trackto(scene, obj, empty, prev_state=None):
@@ -397,8 +422,7 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         orbit_objs = _linked_smart_pivot_orbit_objects(empty) if empty else []
 
         # Also support starting G/R/S directly from the linked camera/light.
-        self._active_is_orbit_object = bool(active and active.type in {'CAMERA', 'LIGHT'})
-        if empty is None and self._active_is_orbit_object:
+        if empty is None and active and active.type in {'CAMERA', 'LIGHT'}:
             empty = _linked_smart_pivot_empty_from_orbit_object(active)
             orbit_objs = [active]
 
@@ -406,10 +430,7 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         self._ending = False
         self._empty_name = empty.name if empty else ""
         self._orbit_object_names = [obj.name for obj in orbit_objs]
-        self._restore_childof_after_translate = set()
-        self._had_childof_before_translate = {}
         self._trackto_state_before_rotate = {}
-        self._translate_was_cancelled = False
         self._resize_was_cancelled = False
         self._dolly_zoom = None
 
@@ -419,35 +440,17 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
             return {'PASS_THROUGH'}
 
         # Safety net: rebuild missing Track To if undo/redo or manual edits broke links.
+        # Also drop any Child Of left over from a session that never finalised, so the
+        # empty starts every transform as a pure aim target.
         for obj in orbit_objs:
+            _apply_live_target_childof(scene, obj, empty)
             _ensure_live_target_trackto(scene, obj, empty)
 
-        # Apply expected pre-transform state.
-        # Only Translate (Grab) should force-remove Child Of.
-        if self.transform_type == 'TRANSLATE':
-            self._had_childof_before_translate = {obj.name: _has_live_target_childof(obj, empty) for obj in orbit_objs}
-            for obj in orbit_objs:
-                if self._had_childof_before_translate.get(obj.name):
-                    _apply_live_target_childof(scene, obj, empty)
-            # If user grabbed camera/light directly, restore Child Of after grab ends.
-            if self._active_is_orbit_object and active and self._had_childof_before_translate.get(active.name):
-                self._restore_childof_after_translate = {active.name}
-        elif self.transform_type == 'ROTATE':
-            for obj in orbit_objs:
-                if not _has_live_target_childof(obj, empty):
-                    _recreate_live_target_childof(scene, obj, empty)
-                track_to = _find_live_target_track_to(obj, empty)
-                if track_to:
-                    self._trackto_state_before_rotate[obj.name] = {
-                        "track_axis": track_to.track_axis,
-                        "up_axis": track_to.up_axis,
-                        "use_target_z": track_to.use_target_z,
-                    }
-                    _apply_live_target_trackto(scene, obj, empty)
-        else:
-            for obj in orbit_objs:
-                if not _has_live_target_childof(obj, empty):
-                    _recreate_live_target_childof(scene, obj, empty)
+        # Only rotating the Empty itself orbits. Rotating the camera/light directly
+        # cannot orbit anything (Child Of is driven by the Empty's rotation, not the
+        # camera's), so leave that case to the plain Track To behaviour.
+        if self.transform_type == 'ROTATE' and empty == active:
+            self._begin_orbit(scene, orbit_objs, empty)
 
         # Dolly zoom session: scaling smart pivot empty drives camera lens + local Z dolly.
         cam = next((obj for obj in orbit_objs if obj.type == 'CAMERA'), None)
@@ -456,54 +459,67 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
 
         result = self._invoke_native_transform()
         if 'RUNNING_MODAL' not in result and 'FINISHED' not in result:
-            # Immediate cancel/failure: restore original Child Of state for direct camera/light grab.
-            if self.transform_type == 'TRANSLATE':
-                for obj in orbit_objs:
-                    had = self._had_childof_before_translate.get(obj.name, False)
-                    has_now = _has_live_target_childof(obj, empty)
-                    if had and not has_now:
-                        _recreate_live_target_childof(scene, obj, empty)
-                    elif not had and has_now:
-                        _apply_live_target_childof(scene, obj, empty)
-            elif self.transform_type == 'ROTATE':
-                for obj in orbit_objs:
-                    prev = self._trackto_state_before_rotate.get(obj.name)
-                    has_now = _find_live_target_track_to(obj, empty) is not None
-                    if prev and not has_now:
-                        _recreate_live_target_trackto(scene, obj, empty, prev_state=prev)
-                    elif (not prev) and has_now:
-                        _apply_live_target_trackto(scene, obj, empty)
+            self._finalise(scene, orbit_objs, empty)
             return {'CANCELLED'}
 
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
+    # -- orbit lifecycle ------------------------------------------------
+    def _begin_orbit(self, scene, orbit_objs, empty):
+        """Hand the camera over to the Empty's rotation for the duration of this modal.
+
+        Track To has to be baked off *before* Child Of is bound, never after: baking
+        writes the basis matrix, so doing it with a live Child Of folds the Empty's
+        rotation into the basis while the constraint keeps applying it too.
+
+        The session is registered up front: the moment a Child Of exists it is a
+        legitimate one, and the safety net must not mistake it for a leak.
+        """
+        _ROTATE_SESSIONS.add(id(self))
+        for obj in orbit_objs:
+            track_to = _find_live_target_track_to(obj, empty)
+            if track_to:
+                self._trackto_state_before_rotate[obj.name] = {
+                    "track_axis": track_to.track_axis,
+                    "up_axis": track_to.up_axis,
+                    "use_target_z": track_to.use_target_z,
+                }
+                _apply_live_target_trackto(scene, obj, empty)
+            _recreate_live_target_childof(scene, obj, empty)
+
+    def _finalise(self, scene, orbit_objs, empty):
+        """Return every orbit object to the resting state: Track To only, no Child Of.
+
+        Runs on confirm and on cancel alike -- on cancel the transform has already
+        restored the Empty's rotation, so baking Child Of off leaves the camera
+        exactly where it started.
+
+        The session is released only once teardown is done, so the safety net never
+        races this and tears the same constraints down underneath it.
+        """
+        try:
+            if not (empty and orbit_objs and scene):
+                return
+            for obj in orbit_objs:
+                _apply_live_target_childof(scene, obj, empty)
+                _ensure_live_target_trackto(
+                    scene, obj, empty,
+                    prev_state=self._trackto_state_before_rotate.get(obj.name),
+                )
+        finally:
+            _ROTATE_SESSIONS.discard(id(self))
+
+    def _session_objects(self):
+        empty = bpy.data.objects.get(self._empty_name)
+        orbit_objs = [o for o in (bpy.data.objects.get(n) for n in self._orbit_object_names) if o]
+        scene = _shared_scene_for_objects(empty, *orbit_objs) if (empty and orbit_objs) else None
+        return empty, orbit_objs, scene
+
     def modal(self, context, event):
         if self._ending:
-            empty = bpy.data.objects.get(self._empty_name)
-            orbit_objs = [bpy.data.objects.get(n) for n in self._orbit_object_names]
-            orbit_objs = [o for o in orbit_objs if o]
-            scene = _shared_scene_for_objects(empty, *orbit_objs) if empty and orbit_objs else None
-            if (
-                self.transform_type == 'TRANSLATE'
-                and empty and orbit_objs and scene
-            ):
-                if self._translate_was_cancelled:
-                    for obj in orbit_objs:
-                        if self._had_childof_before_translate.get(obj.name) and not _has_live_target_childof(obj, empty):
-                            _recreate_live_target_childof(scene, obj, empty)
-                else:
-                    for obj in orbit_objs:
-                        if obj.name not in self._restore_childof_after_translate and _has_live_target_childof(obj, empty):
-                            _apply_live_target_childof(scene, obj, empty)
-            if self.transform_type == 'ROTATE' and empty and orbit_objs and scene:
-                for obj in orbit_objs:
-                    prev = self._trackto_state_before_rotate.get(obj.name)
-                    has_now = _find_live_target_track_to(obj, empty) is not None
-                    if prev and not has_now:
-                        _recreate_live_target_trackto(scene, obj, empty, prev_state=prev)
-                    elif (not prev) and has_now:
-                        _apply_live_target_trackto(scene, obj, empty)
+            empty, orbit_objs, scene = self._session_objects()
+            self._finalise(scene, orbit_objs, empty)
             if self.transform_type == 'RESIZE' and self._dolly_zoom:
                 cam = bpy.data.objects.get(self._dolly_zoom["camera_name"])
                 if cam and cam.type == 'CAMERA' and getattr(cam, "data", None):
@@ -539,9 +555,7 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
 
         # Detect both confirm and cancel keys while allowing transform to consume them.
         if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE', 'ESC'} and event.value in {'PRESS', 'CLICK'}:
-            cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
-            self._translate_was_cancelled = cancelled
-            self._resize_was_cancelled = cancelled
+            self._resize_was_cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
             self._ending = True
             return {'PASS_THROUGH'}
 
@@ -551,6 +565,38 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
 # ---------------------------------------------------------------------
 # Keymaps & purge
 # ---------------------------------------------------------------------
+def _enforce_childof_only_while_orbiting(depsgraph):
+    """Child Of must never outlive the rotate modal that created it.
+
+    A leaked one silently reparents the camera to the Empty, so plain moves and
+    Alt+G on the Empty would drag the camera along instead of only re-aiming it.
+    Bakes via the already-evaluated depsgraph -- forcing a view layer update from
+    inside a depsgraph handler is not safe.
+    """
+    if _ROTATE_SESSIONS or _NET_SUSPEND or depsgraph is None:
+        return
+    for obj in bpy.data.objects:
+        if obj.type not in {'CAMERA', 'LIGHT'}:
+            continue
+        stale = [
+            c for c in list(obj.constraints)
+            if c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf')
+            and getattr(c, 'target', None) is not None
+            and c.target.get("is_smart_pivot_target")
+        ]
+        if not stale:
+            continue
+        try:
+            obj.matrix_world = obj.evaluated_get(depsgraph).matrix_world.copy()
+        except Exception:
+            pass
+        for c in stale:
+            try:
+                obj.constraints.remove(c)
+            except Exception:
+                pass
+
+
 @persistent
 def _cleanup_orphan_live_target_constraints(_scene, _depsgraph):
     """If target empties are deleted manually, remove now-orphaned LiveTarget constraints."""
@@ -565,6 +611,12 @@ def _cleanup_orphan_live_target_constraints(_scene, _depsgraph):
                     obj.constraints.remove(c)
                 except Exception:
                     pass
+    _enforce_childof_only_while_orbiting(_depsgraph)
+
+
+@persistent
+def _reset_rotate_sessions(_dummy=None):
+    _ROTATE_SESSIONS.clear()
 
 
 @persistent
@@ -922,13 +974,16 @@ def register():
     handlers = (
         (bpy.app.handlers.depsgraph_update_post, _cleanup_orphan_live_target_constraints),
         (bpy.app.handlers.frame_change_post, _sync_keyframed_dolly_zoom),
+        (bpy.app.handlers.load_post, _reset_rotate_sessions),
     )
     for hlist, fn in handlers:
         if fn not in hlist:
             hlist.append(fn)
 
 def unregister():
+    _ROTATE_SESSIONS.clear()
     for hlist, fn in (
+        (bpy.app.handlers.load_post, _reset_rotate_sessions),
         (bpy.app.handlers.frame_change_post, _sync_keyframed_dolly_zoom),
         (bpy.app.handlers.depsgraph_update_post, _cleanup_orphan_live_target_constraints),
     ):
