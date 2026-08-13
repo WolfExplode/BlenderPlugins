@@ -12,7 +12,7 @@ window.BP_SEARCH_INDEX = [
       {
         "title": "Add-ons",
         "url": "index.html#add-ons",
-        "snippet": "Add-on Category Blender Bweight Paint 4.0+ Cyclic Animation Baker Animation 5.0+ Gizmo Plus 3D View 4.0+ HDRi Maker 3D View 5.0+ ScreenshotN..."
+        "snippet": "Add-on Category Blender Bweight Paint 4.0+ Download ZIP Cyclic Animation Baker Animation 5.0+ Download ZIP Gizmo Plus 3D View 4.0+ Download ..."
       }
     ]
   },
