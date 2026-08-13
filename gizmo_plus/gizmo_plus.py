@@ -69,7 +69,9 @@ def manipulator_position(region, rv3d, pivot):
     depth_ref = pivot
     # Behind the camera the pivot can't be projected; anchor the depth to a
     # point in front of the eye instead so the pinned gizmo stays visible.
-    if (rv3d.view_matrix @ pivot).z > -0.01:
+    # Orthographic views have no eye point — everything projects, and the
+    # view-space depth of an on-screen pivot is meaningless here.
+    if rv3d.is_perspective and (rv3d.view_matrix @ pivot).z > -0.01:
         inv = rv3d.view_matrix.inverted()
         eye = inv.translation
         forward = -Vector((inv[0][2], inv[1][2], inv[2][2]))
