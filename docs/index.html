@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>BlenderPlugins — BlenderPlugins</title>
 <meta name="description" content="A collection of Blender add-ons and scripts for rigging, weight painting, animation, and viewport tools.">
 <link rel="stylesheet" href="assets/style.css">
@@ -32,27 +33,36 @@
     <code>Edit &rarr; Preferences &rarr; Add-ons &rarr; Install&hellip;</code>
     and pick it (zip the folder first if it contains multiple files). Enable the checkbox to activate.</p>
 
-    <h2 class="section-title">Add-ons</h2>
+    <h2 class="section-title" id="add-ons">Add-ons</h2>
     <table class="addon-table">
       <thead><tr><th>Add-on</th><th>Category</th><th>Blender</th></tr></thead>
       <tbody>
-        <tr><td><a href="addons/bone-renamer/index.html">Bone Renamer</a></td><td>Rigging</td><td>4.0+</td></tr>
         <tr><td><a href="addons/bweight/index.html">Bweight</a></td><td>Paint</td><td>4.0+</td></tr>
         <tr><td><a href="addons/cyclic-animation-baker/index.html">Cyclic Animation Baker</a></td><td>Animation</td><td>5.0+</td></tr>
-        <tr><td><a href="addons/geo-nodes-io/index.html">Import Export Geo Nodes</a></td><td>Node</td><td>5.1+</td></tr>
         <tr><td><a href="addons/gizmo-plus/index.html">Gizmo Plus</a></td><td>3D View</td><td>4.0+</td></tr>
-        <tr><td><a href="addons/guard-edit-mode/index.html">Guard Edit Mode for MACHIN3tools</a></td><td>System</td><td>4.0+</td></tr>
         <tr><td><a href="addons/hdri-maker/index.html">HDRi Maker</a></td><td>3D View</td><td>5.0+</td></tr>
-        <tr><td><a href="addons/open-console-startup/index.html">Open Console on Startup</a></td><td>System</td><td>3.2+</td></tr>
         <tr><td><a href="addons/screenshot-nodes/index.html">ScreenshotNodes</a></td><td>Node</td><td>4.0+</td></tr>
         <tr><td><a href="addons/symmetrize-plus/index.html">Symmetrize Plus</a></td><td>Mesh</td><td>4.0+</td></tr>
-        <tr><td><a href="addons/target-please/index.html">Target, Please!</a></td><td>Object</td><td>4.2+</td></tr>
-        <tr><td><a href="addons/translate-shapekeys/index.html">translateShapekeysToEnglish</a></td><td>Rigging</td><td>3.2+</td></tr>
+        <tr><td><a href="addons/target-please/index.html">Tracking Camera Rig</a></td><td>Camera</td><td>4.2+</td></tr>
         <tr><td><a href="addons/world-space-brush/index.html">World-Space Brush</a></td><td>Paint</td><td>4.0+</td></tr>
       </tbody>
     </table>
 
-    <h2 class="section-title">Archived</h2>
+    <details class="collapsible">
+      <summary class="section-title collapsible-summary" id="smaller-add-ons">Smaller Add-ons</summary>
+      <p class="collapsible-note">Single-purpose scripts and small utilities &mdash; quick fixes rather than full workflow tools.</p>
+      <table class="addon-table">
+        <thead><tr><th>Add-on</th><th>Category</th><th>Blender</th></tr></thead>
+        <tbody>
+          <tr><td><a href="addons/bone-renamer/index.html">Bone Renamer</a></td><td>Rigging</td><td>4.0+</td></tr>
+          <tr><td><a href="addons/guard-edit-mode/index.html">Guard Edit Mode for MACHIN3tools</a></td><td>System</td><td>4.0+</td></tr>
+          <tr><td><a href="addons/open-console-startup/index.html">Open Console on Startup</a></td><td>System</td><td>3.2+</td></tr>
+          <tr><td><a href="addons/translate-shapekeys/index.html">translateShapekeysToEnglish</a></td><td>Rigging</td><td>3.2+</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <h2 class="section-title" id="archived">Archived</h2>
     <p>Older add-ons that are no longer maintained live in
     <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Archive">/Archive</a> for reference.</p>
 

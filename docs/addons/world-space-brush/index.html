@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>World-Space Brush — BlenderPlugins</title>
 <meta name="description" content="Keep the texture paint brush size consistent in world units (BU) instead of screen pixels, using the 3D cursor depth as reference.">
 <link rel="stylesheet" href="../../assets/style.css">
@@ -26,21 +27,21 @@
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/world-space%20brush/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/world-space%20brush">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
+      <h2 id="overview">Overview</h2>
       <p>Keep the texture paint brush size consistent in <strong>world units</strong> (BU) instead of screen pixels, using the 3D cursor depth as reference.</p>
-      <h2>UI Location</h2>
+      <h2 id="ui-location">UI Location</h2>
       <ul>
       <li><strong>Texture Paint</strong> mode &rarr; 3D Viewport Sidebar &rarr; <strong>Tool</strong> tab &rarr; brush radius controls: <strong>Scene Radius</strong> toggle and <strong>Debug Overlay</strong> icon toggle.</li>
       <li>Scene properties: <code>Scene.wltp</code> (main settings), <code>Scene.wltp_dbg</code> (debug overlay settings).</li>
     </ul>
-      <h2>Features</h2>
+      <h2 id="features">Features</h2>
       <ul class="feature-list">
       <li><strong>World-space brush radius</strong>: Computes how many pixels correspond to 1 Blender Unit at the 3D cursor and adjusts the brush pixel size so the on-mesh footprint stays constant when zooming, respecting Unified Size if enabled.</li>
       <li><strong>Cursor-based depth</strong>: Uses the 3D cursor position as the depth reference for size calculations, with an optional operator to move the cursor to the paint surface on left mouse.</li>
       <li><strong>Interactive adjustment</strong>: Press <code>F</code> in texture paint mode to change brush size as usual; on release, the addon updates the stored world-space diameter to match.</li>
       <li><strong>Debug overlay</strong>: Optional viewport overlay showing pixels-per-unit at cursor and desired/applied brush radii, with console logging when enabled.</li>
     </ul>
-      <h2>Usage</h2>
+      <h2 id="usage">Usage</h2>
       <ol>
       <li>Enter <strong>Texture Paint</strong> mode and select a paint brush.</li>
       <li>Enable <strong>Scene Radius</strong> in the brush settings UI.</li>

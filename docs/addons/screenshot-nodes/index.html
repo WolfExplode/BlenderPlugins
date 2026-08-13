@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>ScreenshotNodes — BlenderPlugins</title>
 <meta name="description" content="Capture high-quality screenshots of a node tree (entire tree or only selected nodes), auto-stitched from multiple tiles using OpenImageIO.">
 <link rel="stylesheet" href="../../assets/style.css">
@@ -26,21 +27,21 @@
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/ScreenshotNodes/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/ScreenshotNodes">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
+      <h2 id="overview">Overview</h2>
       <p>Capture high-quality screenshots of a node tree (entire tree or only selected nodes), auto-stitched from multiple tiles using OpenImageIO.</p>
-      <h2>UI Location</h2>
+      <h2 id="ui-location">UI Location</h2>
       <ul>
       <li><strong>Context Menu</strong> in the Node Editor &mdash; right-click &rarr; <strong>PrintNodes</strong> menu &rarr; <em>Take Screenshot Of Whole Tree</em> / <em>Take Screenshot Of Selected Nodes</em>.</li>
       <li><strong>Preferences</strong>: <code>Edit</code> &rarr; <code>Preferences</code> &rarr; <code>Add-ons</code> &rarr; <strong>ScreenshotNodes</strong> to configure Secondary Directory, Always Use Secondary Directory, and Node Outline Color.</li>
     </ul>
-      <h2>Features</h2>
+      <h2 id="features">Features</h2>
       <ul class="feature-list">
       <li><strong>Whole-tree or selection capture</strong>: Screenshot the entire active node tree, or only the currently selected nodes.</li>
       <li><strong>Tilized capture &amp; stitching</strong>: Uses a modal timer to pan the node editor and capture tiles, stitched into a single high-resolution image via OpenImageIO.</li>
       <li><strong>Automatic cropping &amp; styling</strong>: Temporarily adjusts theme settings (grid, scrollbars, wire color, selection color) for clean output, then restores your theme and view settings afterwards.</li>
       <li><strong>Configurable save location &amp; color</strong>: Defaults to a <code>NodesShots</code> subfolder next to the <code>.blend</code> file, with a configurable fallback directory and custom node outline color.</li>
     </ul>
-      <h2>Usage</h2>
+      <h2 id="usage">Usage</h2>
       <ol>
       <li>Open the desired node editor (Shader, Geometry, etc.) and set up your node tree.</li>
       <li>Optionally select a subset of nodes if you only want a partial screenshot.</li>

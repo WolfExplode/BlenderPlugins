@@ -1,7 +1,7 @@
 bl_info = {
     "name": "translateShapekeysToEnglish",
     "author": "WolfExplode",
-    "version": (1, 0, 0),
+    "version": (1, 2, 0),
     "blender": (3, 2, 0),
     }
 

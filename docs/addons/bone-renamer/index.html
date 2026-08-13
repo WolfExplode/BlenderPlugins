@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>Bone Renamer — BlenderPlugins</title>
 <meta name="description" content="Rename armature bones between different naming conventions and optionally translate Japanese bone names to English.">
 <link rel="stylesheet" href="../../assets/style.css">
@@ -26,18 +27,18 @@
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/BoneRenamer_v1.2/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/BoneRenamer_v1.2">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
+      <h2 id="overview">Overview</h2>
       <p>Rename armature bones between different naming conventions and optionally translate Japanese bone names to English.</p>
-      <h2>UI Location</h2>
+      <h2 id="ui-location">UI Location</h2>
       <p>3D Viewport &rarr; Sidebar (<code>N</code>) &rarr; <strong>Animation</strong> tab &rarr; <strong>Bone Renamer</strong> panel.</p>
-      <h2>Features</h2>
+      <h2 id="features">Features</h2>
       <ul class="feature-list">
       <li><strong>Multi-format renaming</strong>: Converts bone names between multiple formats (MMD English/Japanese, XNALara, DAZ/Poser, Rigify, Sims 2, Motion Builder, 3ds Max, BEPu, and custom/unknown).</li>
       <li><strong>Finger support</strong>: Optional inclusion of finger bones in the renaming pass.</li>
       <li><strong>Japanese &rarr; English translation</strong>: Replaces common Japanese bone name fragments with English equivalents.</li>
       <li><strong>Viewport helper</strong>: Toggle visibility of bone names for all armatures in the scene.</li>
     </ul>
-      <h2>Usage</h2>
+      <h2 id="usage">Usage</h2>
       <ol>
       <li>Select an armature and pick it with the eyedropper in <strong>Armature</strong>.</li>
       <li>Choose <strong>From</strong> and <strong>To</strong> formats (e.g. <em>MMD English</em> &rarr; <em>Rigify</em>).</li>

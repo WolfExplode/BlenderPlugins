@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>Symmetrize Plus — BlenderPlugins</title>
 <meta name="description" content="Symmetrize with a flick gizmo &amp;mdash; pick an axis and direction interactively instead of digging through the standard menu options.">
 <link rel="stylesheet" href="../../assets/style.css">
@@ -26,26 +27,30 @@
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Symmetrize_Plus/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Symmetrize_Plus">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
-      <p>Symmetrize with a flick gizmo &mdash; pick an axis and direction interactively instead of digging through the standard menu options.</p>
-      <h2>UI Location</h2>
-      <p><strong>Edit Mesh</strong> / <strong>Sculpt</strong> / <strong>Weight Paint</strong> &rarr; hotkey <code>Alt+X</code>.</p>
-      <h2>Features</h2>
-      <ul class="feature-list">
-      <li><strong>Flick gizmo</strong>: Drag toward an axis/direction to symmetrize; a status-bar readout shows the active choice.</li>
-      <li><strong>Multi-mode support</strong>: Works in Edit Mesh, Sculpt, and Weight Paint.</li>
-      <li><strong>Custom normal handling</strong>: Fix-center options for clearing or transferring normals across the symmetry plane.</li>
-    </ul>
-      <h2>Usage</h2>
+      <h2 id="overview">Overview</h2>
+      <p>The UI is taken from <a href="https://machin3.io/MESHmachine/docs/symmetrize/">Machin3tools symmetrize</a>.</p>
+      <p>Symmetrize with a flick gizmo. Unlike Machin3tools's symmetrize, this is made to work with weights and vertex groups. Works in Edit Mesh, Sculpt, and Weight Paint.</p>
+      <img width="246" height="253" alt="symmetrize gizmo" src="https://github.com/user-attachments/assets/97bab205-5b57-4ac9-8c15-a3333f71daaf">
+      <h2 id="edit-mode-usage">Edit Mode Usage</h2>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/38148eae-46a3-4b89-8f52-3f8f479f8bf8">
+        Your browser does not support embedded video. <a href="https://github.com/user-attachments/assets/38148eae-46a3-4b89-8f52-3f8f479f8bf8">Watch the demo clip on GitHub</a>.
+      </video>
+      <h2 id="symmetrize-weight-paints">Symmetrize Weight Paints</h2>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/b8f7a2f3-0156-4679-845f-4998d819a115">
+        Your browser does not support embedded video. <a href="https://github.com/user-attachments/assets/b8f7a2f3-0156-4679-845f-4998d819a115">Watch the demo clip on GitHub</a>.
+      </video>
+      <h2 id="basic-usage">Basic Usage</h2>
       <ol>
       <li>Enter Edit Mesh, Sculpt, or Weight Paint mode.</li>
-      <li>Press <code>Alt+X</code> and flick toward the axis/direction you want to symmetrize from.</li>
-      <li>Release to confirm, or cancel with <code>Esc</code>/right-click.</li>
+      <li>Press <strong>Alt+X</strong> and flick toward the axis/direction you want to symmetrize from.</li>
+      <li>Release to confirm, or cancel with Esc/right-click.</li>
     </ol>
+      <h2 id="ui-location">UI Location</h2>
+      <p><code>Edit Mesh</code> / <code>Sculpt</code> / <code>Weight Paint</code> &rarr; hotkey <strong>Alt+X</strong>.</p>
     </article>
     <div class="prevnext">
       <a class="prev" href="../screenshot-nodes/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">ScreenshotNodes</span></a>
-      <a class="next" href="../target-please/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">Target, Please!</span></a>
+      <a class="next" href="../target-please/index.html"><span class="pn-dir">Next &rarr;</span><span class="pn-title">Tracking Camera Rig</span></a>
     </div>
   </main>
 </div>

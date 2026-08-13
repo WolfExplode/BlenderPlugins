@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>Bweight — BlenderPlugins</title>
 <meta name="description" content="Keyboard-driven weight painting &amp;mdash; smooth/sharpen and grow/shrink the active vertex group&#x27;s weights without leaving the brush, plus scoped auto-normalize across selected bones.">
 <link rel="stylesheet" href="../../assets/style.css">
@@ -26,18 +27,18 @@
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Bweight/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Bweight">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
+      <h2 id="overview">Overview</h2>
       <p>Keyboard-driven weight painting &mdash; smooth/sharpen and grow/shrink the active vertex group's weights without leaving the brush, plus scoped auto-normalize across selected bones.</p>
-      <h2>UI Location</h2>
+      <h2 id="ui-location">UI Location</h2>
       <p><strong>Weight Paint</strong> mode &rarr; keymap-driven, no panel.</p>
-      <h2>Features</h2>
+      <h2 id="features">Features</h2>
       <ul class="feature-list">
       <li><strong>Smooth / sharpen</strong>: <code>Ctrl+Shift+=</code> / <code>Ctrl+Shift+-</code> blur or sharpen weights on the active vertex group.</li>
       <li><strong>Grow / shrink</strong>: <code>Ctrl+=</code> / <code>Ctrl+-</code> expand or contract the weighted region.</li>
       <li><strong>Ctrl-inverted weight gradient</strong>: Holding Ctrl while painting inverts the gradient direction.</li>
       <li><strong>Scoped auto-normalize</strong>: Normalizes weights across the selected bones/vertex groups only, instead of all groups on the mesh.</li>
     </ul>
-      <h2>Usage</h2>
+      <h2 id="usage">Usage</h2>
       <ol>
       <li>Enter Weight Paint mode on a mesh with an active vertex group.</li>
       <li>Use the smooth/sharpen and grow/shrink hotkeys to adjust weights interactively.</li>

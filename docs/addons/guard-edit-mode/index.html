@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <title>Guard Edit Mode for MACHIN3tools — BlenderPlugins</title>
 <meta name="description" content="Prevent entering Edit Mode on extremely heavy meshes by patching MACHIN3tools operators and &lt;code&gt;object.mode_set&lt;/code&gt;, with optional debug logging.">
 <link rel="stylesheet" href="../../assets/style.css">
@@ -26,18 +27,18 @@
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Guard%20Edit%20Mode%20for%20MACHIN3tools/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Guard%20Edit%20Mode%20for%20MACHIN3tools">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
+      <h2 id="overview">Overview</h2>
       <p>Prevent entering Edit Mode on extremely heavy meshes by patching MACHIN3tools operators and <code>object.mode_set</code>, with optional debug logging.</p>
-      <h2>UI Location</h2>
+      <h2 id="ui-location">UI Location</h2>
       <p><code>Edit</code> &rarr; <code>Preferences</code> &rarr; <code>Add-ons</code> &rarr; search for <strong>Guard Edit Mode for MACHIN3tools (debug)</strong>.</p>
-      <h2>Features</h2>
+      <h2 id="features">Features</h2>
       <ul class="feature-list">
       <li><strong>Vertex-count guard</strong>: Checks the active mesh&rsquo;s vertex count before allowing Edit Mode, and blocks it when the count exceeds a configurable threshold.</li>
       <li><strong>Operator patching</strong>: Wraps <code>machin3.edit_mode</code>, <code>machin3.mesh_mode</code>, and <code>object.mode_set</code> to enforce the guard, handling both <code>execute()</code> and <code>invoke()</code> where needed.</li>
       <li><strong>User preferences</strong>: <strong>Vertex Threshold</strong> sets the maximum allowed vertices; <strong>Enable debug logging</strong> prints detailed events and errors to the system console.</li>
       <li><strong>Non-destructive</strong>: On unregister, restores original operator methods.</li>
     </ul>
-      <h2>Usage</h2>
+      <h2 id="usage">Usage</h2>
       <ol>
       <li>Install and enable the addon.</li>
       <li>In the add-on preferences, set <strong>Vertex Threshold</strong> (e.g. <code>1,000,000</code>) and optionally enable <strong>debug logging</strong> to see guard decisions in the console.</li>

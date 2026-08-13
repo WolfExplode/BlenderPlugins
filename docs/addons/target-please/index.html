@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Target, Please! — BlenderPlugins</title>
-<meta name="description" content="Create a tracking target with a smart orbit pivot for cameras and lights &amp;mdash; orbit around a subject without manually parenting/unparenting.">
+<script>(function(){try{var t=localStorage.getItem("bp-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<title>Tracking Camera Rig — BlenderPlugins</title>
+<meta name="description" content="A camera rig addon combining target tracking with the standard Blender camera rig &amp;mdash; keyframe the camera and tracker separately while maintaining tracking.">
 <link rel="stylesheet" href="../../assets/style.css">
 </head>
 <body>
@@ -21,27 +22,34 @@
   <nav class="sidebar"><div id="sidebar-mount"></div></nav>
   <main class="content">
     <div class="page-head">
-      <div class="badges"><span class="badge">Object</span><span class="badge">Blender 4.2+</span><span class="badge">v1.3.1</span></div>
-      <h1>Target, Please!</h1>
+      <div class="badges"><span class="badge">Camera</span><span class="badge">Blender 4.2+</span><span class="badge">v1.3.1</span></div>
+      <h1>Tracking Camera Rig</h1>
       <div class="page-links"><a href="https://github.com/WolfExplode/BlenderPlugins/blob/main/Target%20Please/README.md">Docs (README)</a> <a href="https://github.com/WolfExplode/BlenderPlugins/tree/main/Target%20Please">Source</a></div>
     </div>
     <article>
-      <h2>Overview</h2>
-      <p>Create a tracking target with a smart orbit pivot for cameras and lights &mdash; orbit around a subject without manually parenting/unparenting.</p>
-      <h2>UI Location</h2>
-      <p>3D Viewport &rarr; operator search / addon panel (see script for exact menu entry).</p>
-      <h2>Features</h2>
-      <ul class="feature-list">
-      <li><strong>Smart pivot empty</strong>: Adds a pivot empty that the camera/light orbits around.</li>
-      <li><strong>Auto Child Of</strong>: A <code>Child Of</code> constraint is added only while rotating the pivot (orbiting), and removed as soon as rotation ends or a move starts.</li>
-      <li><strong>Track To aiming</strong>: When not rotating, a <code>Track To</code> constraint keeps the camera/light aimed at the target.</li>
+      <h2 id="overview">Overview</h2>
+      <p>A camera rig addon made by combining the <a href="https://ilyassel.gumroad.com/l/TargetIt">original addon</a> by Ilyasse Lojdi, with the standard <a href="https://extensions.blender.org/add-ons/add-camera-rigs/">Blender camera rig</a>. Easy and quick to use &mdash; no more complicated camera rigs or armatures. This plugin handles the majority of camera rig functionality programmatically.</p>
+      <h2 id="key-features">Key Features</h2>
+      <p>You can keyframe the camera and the tracker separately and simultaneously. You can keyframe the rotation while maintaining tracking.</p>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/695fa295-c0c2-4f7a-8782-8704ee49aab1">
+        Your browser does not support embedded video. <a href="https://github.com/user-attachments/assets/695fa295-c0c2-4f7a-8782-8704ee49aab1">Watch the demo clip on GitHub</a>.
+      </video>
+      <p>Dolly Zoom by scaling the target empty</p>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/142088fa-b248-4e87-8791-954cb5d172e0">
+        Your browser does not support embedded video. <a href="https://github.com/user-attachments/assets/142088fa-b248-4e87-8791-954cb5d172e0">Watch the demo clip on GitHub</a>.
+      </video>
+      <h2 id="basic-usage">Basic Usage</h2>
+      <ul>
+      <li>Select any amount of objects</li>
+      <li>Press <code>Shift+T</code> for tracking</li>
+      <li>Use <code>Ctrl+Shift+T</code> to adjust advanced settings</li>
     </ul>
-      <h2>Usage</h2>
-      <ol>
-      <li>Select the camera or light you want to orbit, then run the &ldquo;Target, Please!&rdquo; operator to create the pivot + target.</li>
-      <li>Use <code>R</code> (rotate) on the pivot to orbit &mdash; aiming and parenting are handled automatically.</li>
-      <li>Use <code>G</code>/<code>S</code> to move or scale as normal; the Child Of constraint is removed automatically.</li>
-    </ol>
+      <p>Rotate the targeter to orbit the camera around the target.</p>
+      <video class="demo-video" controls preload="metadata" src="https://github.com/user-attachments/assets/f68769c0-0b5e-46ee-9423-a3c257e00508">
+        Your browser does not support embedded video. <a href="https://github.com/user-attachments/assets/f68769c0-0b5e-46ee-9423-a3c257e00508">Watch the demo clip on GitHub</a>.
+      </video>
+      <h2 id="ui-location">UI Location</h2>
+      <p>3D Viewport &rarr; operator search / addon panel (see script for exact menu entry).</p>
     </article>
     <div class="prevnext">
       <a class="prev" href="../symmetrize-plus/index.html"><span class="pn-dir">&larr; Previous</span><span class="pn-title">Symmetrize Plus</span></a>
