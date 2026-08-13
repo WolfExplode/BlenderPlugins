@@ -22,7 +22,10 @@ Rotate the targeter to orbit the camera around the target.
 
 https://github.com/user-attachments/assets/f68769c0-0b5e-46ee-9423-a3c257e00508
 
-Grab the empty via G and scroll wheel zoom to move the camera closer or further away
+Grab the empty and scroll wheel zoom to move the camera closer or further away. You can keyframe physical camera zoom while rotating.
+
+https://github.com/user-attachments/assets/c9c4c14a-2dc4-4c22-9094-81a6bdf963f9
+
 
 
 
