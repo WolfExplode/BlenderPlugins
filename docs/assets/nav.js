@@ -5,7 +5,6 @@
   var current = typeof NAV_CURRENT !== "undefined" ? NAV_CURRENT : "";
 
   var ADDONS = [
-    { slug: "bone-renamer", title: "Bone Renamer", cat: "Rigging", small: true },
     { slug: "bweight", title: "Bweight", cat: "Paint" },
     { slug: "cyclic-animation-baker", title: "Cyclic Animation Baker", cat: "Animation" },
     { slug: "gizmo-plus", title: "Gizmo Plus", cat: "3D View" },
@@ -15,7 +14,6 @@
     { slug: "screenshot-nodes", title: "ScreenshotNodes", cat: "Node" },
     { slug: "symmetrize-plus", title: "Symmetrize Plus", cat: "Mesh" },
     { slug: "target-please", title: "Tracking Camera Rig", cat: "Camera" },
-    { slug: "translate-shapekeys", title: "translateShapekeysToEnglish", cat: "Rigging", small: true },
     { slug: "world-space-brush", title: "World-Space Brush", cat: "Paint" }
   ];
 

@@ -17,33 +17,6 @@ window.BP_SEARCH_INDEX = [
     ]
   },
   {
-    "title": "Bone Renamer",
-    "url": "addons/bone-renamer/index.html",
-    "desc": "Rename armature bones between different naming conventions and optionally translate Japanese bone names to English.",
-    "sections": [
-      {
-        "title": "Overview",
-        "url": "addons/bone-renamer/index.html#overview",
-        "snippet": "Rename armature bones between different naming conventions and optionally translate Japanese bone names to English."
-      },
-      {
-        "title": "UI Location",
-        "url": "addons/bone-renamer/index.html#ui-location",
-        "snippet": "3D Viewport -> Sidebar ( N ) -> Animation tab -> Bone Renamer panel."
-      },
-      {
-        "title": "Features",
-        "url": "addons/bone-renamer/index.html#features",
-        "snippet": "Multi-format renaming : Converts bone names between multiple formats (MMD English/Japanese, XNALara, DAZ/Poser, Rigify, Sims 2, Motion Build..."
-      },
-      {
-        "title": "Usage",
-        "url": "addons/bone-renamer/index.html#usage",
-        "snippet": "Select an armature and pick it with the eyedropper in Armature . Choose From and To formats (e.g. MMD English -> Rigify ). Optionally enable..."
-      }
-    ]
-  },
-  {
     "title": "Bweight",
     "url": "addons/bweight/index.html",
     "desc": "Keyboard-driven weight painting &mdash; smooth/sharpen and grow/shrink the active vertex group&#x27;s weights without leaving the brush, plus scoped auto-normalize across selected bones.",
@@ -288,33 +261,6 @@ window.BP_SEARCH_INDEX = [
         "title": "UI Location",
         "url": "addons/target-please/index.html#ui-location",
         "snippet": "3D Viewport -> operator search / addon panel (see script for exact menu entry)."
-      }
-    ]
-  },
-  {
-    "title": "translateShapekeysToEnglish",
-    "url": "addons/translate-shapekeys/index.html",
-    "desc": "Rename Japanese shape keys (common in MMD-imported models) to their English equivalents using a built-in lookup table.",
-    "sections": [
-      {
-        "title": "Overview",
-        "url": "addons/translate-shapekeys/index.html#overview",
-        "snippet": "Rename Japanese shape keys (common in MMD-imported models) to their English equivalents using a built-in lookup table."
-      },
-      {
-        "title": "UI Location",
-        "url": "addons/translate-shapekeys/index.html#ui-location",
-        "snippet": "See script for the exact operator/menu entry (operator search: &ldquo;translate shape keys&rdquo;)."
-      },
-      {
-        "title": "Features",
-        "url": "addons/translate-shapekeys/index.html#features",
-        "snippet": "Lookup table translation : Matches shape key names against a table of common Japanese facial/expression terms (chin, cheek, eye, mouth, smil..."
-      },
-      {
-        "title": "Usage",
-        "url": "addons/translate-shapekeys/index.html#usage",
-        "snippet": "Select a mesh with Japanese-named shape keys. Run the translate operator to rename matching shape keys to English."
       }
     ]
   },
