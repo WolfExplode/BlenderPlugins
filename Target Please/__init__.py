@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Target, Please!",
     "author": "Ilyasse Lm, WXP",
-    "version": (1, 3, 2),
+    "version": (1, 3, 3),
     "blender": (4, 2, 0),
     "location": "3D View",
     "description": (
@@ -14,6 +14,7 @@ Easy and quick to use. No more complicated camera rigs or armatures. This plugin
 import bpy
 import json
 from contextlib import contextmanager
+from itertools import count
 from mathutils import Vector
 from bpy_extras import view3d_utils
 from bpy.app.handlers import persistent
@@ -27,15 +28,33 @@ _TRANSFORM_OPS = {
     'RESIZE':    lambda: bpy.ops.transform.resize('INVOKE_DEFAULT'),
 }
 _SPY_KEYS = (('G', 'TRANSLATE'), ('R', 'ROTATE'), ('S', 'RESIZE'))
+# Same keys again, as Blender's Transform Modal Map reads them mid-transform: an
+# in-place mode switch rather than the start of a new transform.
+_MODE_SWITCH_KEYS = {key: ttype for key, ttype in _SPY_KEYS}
 _DZ_KEYS = (
     "camera", "base_scale", "base_camera_world_pos", "base_lens",
     "base_dist", "local_z_world", "lens_min", "lens_max",
 )
 
 
-# Live orbit sessions (ids of running rotate spies). LiveTarget_ChildOf is only
-# allowed to exist while one of these is open.
+# Live orbit sessions. LiveTarget_ChildOf is only allowed to exist while one of
+# these is open. Keys come from a counter rather than id(), which CPython recycles.
 _ROTATE_SESSIONS = set()
+_SESSION_COUNTER = count(1)
+
+# Spy operators currently running modal. A session key outliving every spy means a
+# modal died without finalising; the key would then keep the leak safety net off for
+# the rest of the session, so the next spy clears it.
+_LIVE_SPIES = set()
+
+
+def _next_session_key():
+    return next(_SESSION_COUNTER)
+
+
+def _drop_orphaned_rotate_sessions():
+    if not _LIVE_SPIES:
+        _ROTATE_SESSIONS.clear()
 
 # Depth of in-progress constraint surgery. The helpers below force view layer
 # updates mid-edit, which re-enters depsgraph_update_post; the safety net has to
@@ -301,6 +320,64 @@ def _ensure_live_target_trackto(scene, obj, empty, prev_state=None):
     return track_to
 
 
+def _begin_orbit(scene, orbit_objs, empty, session_key):
+    """Hand the orbit objects over to the Empty's rotation, and return their aim state.
+
+    Track To has to be baked off *before* Child Of is bound, never after: baking
+    writes the basis matrix, so doing it with a live Child Of folds the Empty's
+    rotation into the basis while the constraint keeps applying it too.
+
+    The session is registered up front: the moment a Child Of exists it is a
+    legitimate one, and the safety net must not mistake it for a leak.
+    """
+    _ROTATE_SESSIONS.add(session_key)
+    trackto_state = {}
+    for obj in orbit_objs:
+        track_to = _find_live_target_track_to(obj, empty)
+        if track_to:
+            trackto_state[obj.name] = {
+                "track_axis": track_to.track_axis,
+                "up_axis": track_to.up_axis,
+                "use_target_z": track_to.use_target_z,
+            }
+            _apply_live_target_trackto(scene, obj, empty)
+        _recreate_live_target_childof(scene, obj, empty)
+    return trackto_state
+
+
+def _end_orbit(scene, orbit_objs, empty, session_key, trackto_state=None):
+    """Return every orbit object to the resting state: Track To only, no Child Of.
+
+    Whatever moved the Empty in between -- a confirmed rotate, a cancelled one, or
+    Alt+R -- the camera keeps the pose the Child Of gave it and goes back to merely
+    aiming. Safe to call when no orbit was ever begun.
+
+    The session is released only once teardown is done, so the safety net never
+    races this and tears the same constraints down underneath it.
+    """
+    try:
+        if not (empty and orbit_objs and scene):
+            return
+        for obj in orbit_objs:
+            _apply_live_target_childof(scene, obj, empty)
+            _ensure_live_target_trackto(
+                scene, obj, empty,
+                prev_state=(trackto_state or {}).get(obj.name),
+            )
+    finally:
+        _ROTATE_SESSIONS.discard(session_key)
+
+
+def _smart_pivot_orbit_context(context):
+    """(empty, orbit_objs, scene) when the active object is a live smart pivot Empty."""
+    empty = _active_smart_pivot_empty(context)
+    orbit_objs = _linked_smart_pivot_orbit_objects(empty) if empty else []
+    scene = _shared_scene_for_objects(empty, *orbit_objs) if orbit_objs else None
+    if empty is None or not orbit_objs or scene is None:
+        return None, [], None
+    return empty, orbit_objs, scene
+
+
 def _get_uniform_scale_factor(base_scale, current_scale):
     ratios = [abs(current_scale[i]) / abs(base_scale[i]) for i in range(3) if abs(base_scale[i]) > 1.0e-8]
     if not ratios:
@@ -312,6 +389,30 @@ def _set_world_translation(obj, world_pos):
     mw = obj.matrix_world.copy()
     mw.translation = world_pos
     obj.matrix_world = mw
+
+
+def _dolly_object_local_z(obj, delta):
+    """Slide obj along its own local Z by delta.
+
+    While orbiting, a live Child Of drives the object's world matrix, and assigning
+    matrix_world there would be re-evaluated on top of the constraint. So in that
+    case the move is written into the basis instead: Child Of is rigid, so a basis
+    step along basis-local Z lands as a world step along world-local Z.
+    """
+    live_childof = any(
+        c.type == 'CHILD_OF' and c.name.startswith('LiveTarget_ChildOf') and not c.mute
+        for c in obj.constraints
+    )
+    basis = obj.matrix_basis if live_childof else obj.matrix_world
+    local_z = basis.to_quaternion() @ Vector((0.0, 0.0, 1.0))
+    if local_z.length <= 1.0e-8:
+        return
+    local_z.normalize()
+    new_pos = basis.translation + (local_z * delta)
+    if live_childof:
+        obj.location = new_pos
+    else:
+        _set_world_translation(obj, new_pos)
 
 
 def _has_scale_keyframes(obj):
@@ -417,6 +518,7 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         return _TRANSFORM_OPS[self.transform_type]()
 
     def invoke(self, context, event):
+        _drop_orphaned_rotate_sessions()
         active = getattr(context, "active_object", None)
         empty = _active_smart_pivot_empty(context)
         orbit_objs = _linked_smart_pivot_orbit_objects(empty) if empty else []
@@ -431,8 +533,12 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         self._empty_name = empty.name if empty else ""
         self._orbit_object_names = [obj.name for obj in orbit_objs]
         self._trackto_state_before_rotate = {}
-        self._resize_was_cancelled = False
+        self._was_cancelled = False
         self._dolly_zoom = None
+        self._session_key = None
+        self._empty_is_active = (empty is not None and empty == active)
+        self._base_world = {}
+        self._pending_mode = None
 
         # Spy only for active smart-pivot empties with a valid linked orbit object.
         # Otherwise stay fully transparent and let default G/R/S keymaps run.
@@ -446,69 +552,30 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
             _apply_live_target_childof(scene, obj, empty)
             _ensure_live_target_trackto(scene, obj, empty)
 
-        # Only rotating the Empty itself orbits. Rotating the camera/light directly
-        # cannot orbit anything (Child Of is driven by the Empty's rotation, not the
-        # camera's), so leave that case to the plain Track To behaviour.
-        if self.transform_type == 'ROTATE' and empty == active:
-            self._begin_orbit(scene, orbit_objs, empty)
+        # Resting pose to fall back on when the transform resets itself under us.
+        self._base_world = {obj.name: obj.matrix_world.copy() for obj in orbit_objs}
 
-        # Dolly zoom session: scaling smart pivot empty drives camera lens + local Z dolly.
-        cam = next((obj for obj in orbit_objs if obj.type == 'CAMERA'), None)
-        if self.transform_type == 'RESIZE' and empty == active and cam:
-            self._dolly_zoom = _capture_dolly_zoom_state(empty, cam)
+        self._begin_mode(scene, orbit_objs, empty)
 
         result = self._invoke_native_transform()
         if 'RUNNING_MODAL' not in result and 'FINISHED' not in result:
             self._finalise(scene, orbit_objs, empty)
             return {'CANCELLED'}
 
+        _LIVE_SPIES.add(id(self))
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
     # -- orbit lifecycle ------------------------------------------------
     def _begin_orbit(self, scene, orbit_objs, empty):
-        """Hand the camera over to the Empty's rotation for the duration of this modal.
-
-        Track To has to be baked off *before* Child Of is bound, never after: baking
-        writes the basis matrix, so doing it with a live Child Of folds the Empty's
-        rotation into the basis while the constraint keeps applying it too.
-
-        The session is registered up front: the moment a Child Of exists it is a
-        legitimate one, and the safety net must not mistake it for a leak.
-        """
-        _ROTATE_SESSIONS.add(id(self))
-        for obj in orbit_objs:
-            track_to = _find_live_target_track_to(obj, empty)
-            if track_to:
-                self._trackto_state_before_rotate[obj.name] = {
-                    "track_axis": track_to.track_axis,
-                    "up_axis": track_to.up_axis,
-                    "use_target_z": track_to.use_target_z,
-                }
-                _apply_live_target_trackto(scene, obj, empty)
-            _recreate_live_target_childof(scene, obj, empty)
+        self._session_key = _next_session_key()
+        self._trackto_state_before_rotate = _begin_orbit(scene, orbit_objs, empty, self._session_key)
 
     def _finalise(self, scene, orbit_objs, empty):
-        """Return every orbit object to the resting state: Track To only, no Child Of.
-
-        Runs on confirm and on cancel alike -- on cancel the transform has already
+        """Runs on confirm and on cancel alike -- on cancel the transform has already
         restored the Empty's rotation, so baking Child Of off leaves the camera
-        exactly where it started.
-
-        The session is released only once teardown is done, so the safety net never
-        races this and tears the same constraints down underneath it.
-        """
-        try:
-            if not (empty and orbit_objs and scene):
-                return
-            for obj in orbit_objs:
-                _apply_live_target_childof(scene, obj, empty)
-                _ensure_live_target_trackto(
-                    scene, obj, empty,
-                    prev_state=self._trackto_state_before_rotate.get(obj.name),
-                )
-        finally:
-            _ROTATE_SESSIONS.discard(id(self))
+        exactly where it started."""
+        _end_orbit(scene, orbit_objs, empty, self._session_key, self._trackto_state_before_rotate)
 
     def _session_objects(self):
         empty = bpy.data.objects.get(self._empty_name)
@@ -516,26 +583,70 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
         scene = _shared_scene_for_objects(empty, *orbit_objs) if (empty and orbit_objs) else None
         return empty, orbit_objs, scene
 
+    # -- mode lifecycle --------------------------------------------------
+    def _begin_mode(self, scene, orbit_objs, empty):
+        """Set up whatever the current transform_type needs on top of a resting rig."""
+        # Only rotating the Empty itself orbits. Rotating the camera/light directly
+        # cannot orbit anything (Child Of is driven by the Empty's rotation, not the
+        # camera's), so leave that case to the plain Track To behaviour.
+        if self.transform_type == 'ROTATE' and self._empty_is_active:
+            self._begin_orbit(scene, orbit_objs, empty)
+
+        # Dolly zoom session: scaling smart pivot empty drives camera lens + local Z dolly.
+        cam = next((obj for obj in orbit_objs if obj.type == 'CAMERA'), None)
+        if self.transform_type == 'RESIZE' and self._empty_is_active and cam:
+            self._dolly_zoom = _capture_dolly_zoom_state(empty, cam)
+
+    def _end_mode(self, cancelled):
+        """Return the rig to rest: Track To only, and the dolly zoom resolved either way."""
+        empty, orbit_objs, scene = self._session_objects()
+        self._finalise(scene, orbit_objs, empty)
+        if self.transform_type == 'RESIZE' and self._dolly_zoom:
+            cam = bpy.data.objects.get(self._dolly_zoom["camera_name"])
+            if cam and cam.type == 'CAMERA' and getattr(cam, "data", None):
+                if cancelled:
+                    _set_world_translation(cam, self._dolly_zoom["base_camera_world_pos"])
+                    cam.data.lens = self._dolly_zoom["base_lens"]
+                else:
+                    # Snap once on finish to the final scale-driven dolly-zoom result.
+                    _apply_dolly_zoom_state(self._dolly_zoom)
+        self._dolly_zoom = None
+        self._trackto_state_before_rotate = {}
+        self._session_key = None
+        return empty, orbit_objs, scene
+
+    def _restore_base_world(self, orbit_objs):
+        """Put the orbit objects back where the session found them.
+
+        Track To recomputes rotation from the basis afterwards, so writing the whole
+        matrix is safe -- only the location has to survive.
+        """
+        for obj in orbit_objs:
+            base = self._base_world.get(obj.name)
+            if base is not None:
+                obj.matrix_world = base.copy()
+
     def modal(self, context, event):
-        if self._ending:
+        if self._pending_mode:
+            mode, self._pending_mode = self._pending_mode, None
             empty, orbit_objs, scene = self._session_objects()
-            self._finalise(scene, orbit_objs, empty)
-            if self.transform_type == 'RESIZE' and self._dolly_zoom:
-                cam = bpy.data.objects.get(self._dolly_zoom["camera_name"])
-                if cam and cam.type == 'CAMERA' and getattr(cam, "data", None):
-                    if self._resize_was_cancelled:
-                        _set_world_translation(cam, self._dolly_zoom["base_camera_world_pos"])
-                        cam.data.lens = self._dolly_zoom["base_lens"]
-                    else:
-                        # Snap once on finish to the final scale-driven dolly-zoom result.
-                        _apply_dolly_zoom_state(self._dolly_zoom)
-            return {'FINISHED'}
+            # The transform has reset itself by now, so this is the resting pose again.
+            self._restore_base_world(orbit_objs)
+            self.transform_type = mode
+            if scene is not None:
+                self._begin_mode(scene, orbit_objs, empty)
+
+        if self._ending:
+            self._end_mode(self._was_cancelled)
+            _LIVE_SPIES.discard(id(self))
+            # Pass on the event that merely woke us: it may already be the next G/R/S.
+            return {'FINISHED', 'PASS_THROUGH'}
 
         if self.transform_type == 'RESIZE' and self._dolly_zoom:
             _apply_dolly_zoom_state(self._dolly_zoom)
 
         if (
-            self.transform_type == 'TRANSLATE'
+            self.transform_type in {'TRANSLATE', 'ROTATE'}
             and event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}
             and event.value == 'PRESS'
         ):
@@ -543,23 +654,76 @@ class VIEW3D_OT_smart_pivot_transform_spy(bpy.types.Operator):
             delta = wheel_step if event.type == 'WHEELUPMOUSE' else -wheel_step
             for name in self._orbit_object_names:
                 obj = bpy.data.objects.get(name)
-                if not obj:
-                    continue
-                local_z_world = (obj.matrix_world.to_quaternion() @ Vector((0.0, 0.0, 1.0)))
-                if local_z_world.length <= 1.0e-8:
-                    continue
-                local_z_world.normalize()
-                _set_world_translation(obj, obj.matrix_world.translation + (local_z_world * delta))
-            # Consume wheel so view zoom does not fight local-Z dolly while grabbing.
+                if obj:
+                    _dolly_object_local_z(obj, delta)
+                    # The dolly is ours, not the transform's, so it belongs to the
+                    # resting pose -- a later mode swap must not roll it back.
+                    if name in self._base_world:
+                        self._base_world[name] = obj.matrix_world.copy()
+            # Consume wheel so view zoom does not fight local-Z dolly while transforming.
             return {'RUNNING_MODAL'}
+
+        # G/R/S are bound in Blender's Transform Modal Map to an in-place mode switch,
+        # which resets the transform to its starting state instead of ending it. Nothing
+        # else would ever close this mode out: the confirm or cancel that finishes the
+        # swapped-in transform arrives long after, and a rotate's Child Of would still be
+        # live by then -- so the grab would drag the camera instead of re-aiming it, and
+        # the session key would keep the leak safety net switched off. Tear the old mode
+        # down as a cancel, rewind to the resting pose the transform just reset to, and
+        # set the new mode up as if it had been invoked fresh.
+        new_mode = _MODE_SWITCH_KEYS.get(event.type)
+        if (
+            new_mode is not None
+            and new_mode != self.transform_type
+            and event.value == 'PRESS'
+            and not event.ctrl
+            and not event.alt
+        ):
+            self._end_mode(cancelled=True)
+            # Set the new mode up only on the next event. The transform has not seen
+            # this key yet, so the Empty is still mid-transform right now; binding a
+            # fresh Child Of against that pose would let the reset that follows drag
+            # the camera off by however far the abandoned transform had got.
+            self._pending_mode = new_mode
+            return {'PASS_THROUGH'}
 
         # Detect both confirm and cancel keys while allowing transform to consume them.
         if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE', 'ESC'} and event.value in {'PRESS', 'CLICK'}:
-            self._resize_was_cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
+            self._was_cancelled = event.type in {'RIGHTMOUSE', 'ESC'}
             self._ending = True
             return {'PASS_THROUGH'}
 
         return {'PASS_THROUGH'}
+
+
+class VIEW3D_OT_smart_pivot_clear_rotation(bpy.types.Operator):
+    """Clear rotation, orbiting the camera back along with the target Empty"""
+    bl_idname = "view3d.smart_pivot_clear_rotation"
+    bl_label = "Smart Pivot Clear Rotation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    clear_delta: bpy.props.BoolProperty(
+        name="Clear Delta",
+        description="Clear delta rotation in addition to the normal rotation transform",
+        default=False,
+    )
+
+    def execute(self, context):
+        empty, orbit_objs, scene = _smart_pivot_orbit_context(context)
+        if empty is None:
+            # Not a smart pivot Empty: let the stock Alt+R keymap handle it.
+            return {'PASS_THROUGH'}
+
+        # Same bracket the rotate modal uses. Binding Child Of before the clear and
+        # baking it off after means the camera rides the Empty's rotation back to
+        # identity instead of staying put while the Empty snaps out from under it.
+        key = _next_session_key()
+        trackto_state = _begin_orbit(scene, orbit_objs, empty, key)
+        try:
+            bpy.ops.object.rotation_clear('EXEC_DEFAULT', clear_delta=self.clear_delta)
+        finally:
+            _end_orbit(scene, orbit_objs, empty, key, trackto_state)
+        return {'FINISHED'}
 
 
 # ---------------------------------------------------------------------
@@ -617,6 +781,7 @@ def _cleanup_orphan_live_target_constraints(_scene, _depsgraph):
 @persistent
 def _reset_rotate_sessions(_dummy=None):
     _ROTATE_SESSIONS.clear()
+    _LIVE_SPIES.clear()
 
 
 @persistent
@@ -673,6 +838,11 @@ def register_keymaps():
                 kmi = keymap.keymap_items.new(VIEW3D_OT_smart_pivot_transform_spy.bl_idname, type=key, value='PRESS')
                 kmi.properties.transform_type = ttype
                 addon_keymaps.append((keymap, kmi))
+            # Alt+R: clear rotation, but orbit the camera back with the Empty.
+            kmi = keymap.keymap_items.new(
+                VIEW3D_OT_smart_pivot_clear_rotation.bl_idname, type='R', value='PRESS', alt=True
+            )
+            addon_keymaps.append((keymap, kmi))
 
         _add_spy_keys(km)
         _add_spy_keys(wm.keyconfigs.addon.keymaps.new(name='Object Mode', space_type='EMPTY'))
@@ -965,6 +1135,7 @@ _CLASSES = (
     TargetAddonPreferences,
     OBJECT_OT_live_set_target,
     VIEW3D_OT_smart_pivot_transform_spy,
+    VIEW3D_OT_smart_pivot_clear_rotation,
 )
 
 def register():
@@ -982,6 +1153,7 @@ def register():
 
 def unregister():
     _ROTATE_SESSIONS.clear()
+    _LIVE_SPIES.clear()
     for hlist, fn in (
         (bpy.app.handlers.load_post, _reset_rotate_sessions),
         (bpy.app.handlers.frame_change_post, _sync_keyframed_dolly_zoom),
