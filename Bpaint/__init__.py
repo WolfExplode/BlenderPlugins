@@ -141,33 +141,33 @@ def _ensure_stencil(context):
 
 
 class PAINT_OT_bpaint_modifier(bpy.types.Operator):
+    """Restores the primary brush when Shift or Ctrl is released.
+
+    Pressing the modifier does not switch brushes; that only happens when a stroke or
+    wheel resize starts, so Shift/Ctrl shortcuts keep working on the primary brush.
+    """
+
     bl_idname = "paint.bpaint_modifier"
-    bl_label = "Bpaint Modifier Brush"
+    bl_label = "Bpaint Modifier Release"
     bl_options = {"INTERNAL"}
 
     slot: bpy.props.EnumProperty(items=(("SHIFT", "Shift", ""), ("CTRL", "Ctrl", "")))
-    press: bpy.props.BoolProperty(default=True)
 
     @classmethod
     def poll(cls, context):
         return context.mode == "PAINT_TEXTURE"
 
     def invoke(self, context, event):
-        if self.press:
-            if self.slot == "SHIFT" and event.shift and not event.ctrl and not event.alt:
-                _engage(context, "SHIFT")
-            elif self.slot == "CTRL" and event.ctrl and not event.shift:
-                _engage(context, "CTRL")
-        elif _state["slot"] == self.slot and not _modifier_held(event, self.slot):
+        if _state["slot"] == self.slot and not _modifier_held(event, self.slot):
             _release(context)
         return {"PASS_THROUGH"}
 
 
-class PAINT_OT_bpaint_mask_stroke(bpy.types.Operator):
-    """Runs before a Ctrl+LMB stroke: make sure the Ctrl brush is active and has a stencil to paint into."""
+class PAINT_OT_bpaint_stroke(bpy.types.Operator):
+    """Runs before a Shift/Ctrl+LMB stroke: switch to that modifier's brush, and give the Mask brush a stencil."""
 
-    bl_idname = "paint.bpaint_mask_stroke"
-    bl_label = "Bpaint Mask Stroke"
+    bl_idname = "paint.bpaint_stroke"
+    bl_label = "Bpaint Modifier Stroke"
     bl_options = {"INTERNAL"}
 
     @classmethod
@@ -175,15 +175,43 @@ class PAINT_OT_bpaint_mask_stroke(bpy.types.Operator):
         return context.mode == "PAINT_TEXTURE"
 
     def invoke(self, context, event):
-        if _state["slot"] is None:
-            _engage(context, "CTRL")
+        if event.alt or event.shift == event.ctrl:
+            return {"PASS_THROUGH"}
+        _engage(context, "SHIFT" if event.shift else "CTRL")
         ip = context.tool_settings.image_paint
         if ip.brush is not None and ip.brush.image_brush_type == "MASK":
             _ensure_stencil(context)
         return {"PASS_THROUGH"}
 
 
-classes = (PAINT_OT_bpaint_modifier, PAINT_OT_bpaint_mask_stroke)
+class PAINT_OT_bpaint_shift_wheel(bpy.types.Operator):
+    """Shift/Ctrl+wheel resizes the brush that modifier switched to, instead of panning the view."""
+
+    bl_idname = "paint.bpaint_shift_wheel"
+    bl_label = "Bpaint Resize Secondary Brush"
+    bl_options = {"INTERNAL"}
+
+    direction: bpy.props.IntProperty(default=1)
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "PAINT_TEXTURE"
+
+    def invoke(self, context, event):
+        if event.alt or event.shift == event.ctrl:
+            return {"PASS_THROUGH"}
+        _engage(context, "SHIFT" if event.shift else "CTRL")
+        ip = context.tool_settings.image_paint
+        ups = ip.unified_paint_settings
+        target = ups if ups.use_unified_size else ip.brush
+        if target is None:
+            return {"CANCELLED"}
+        step = max(1, round(target.size * 0.1))
+        target.size = max(1, target.size + self.direction * step)
+        return {"FINISHED"}
+
+
+classes = (PAINT_OT_bpaint_modifier, PAINT_OT_bpaint_stroke, PAINT_OT_bpaint_shift_wheel)
 
 
 def register():
@@ -196,26 +224,31 @@ def register():
     km = kc.keymaps.new(name="Window", space_type="EMPTY")
     for slot, keys in _MODIFIER_KEYS.items():
         for key in keys:
-            for value, press in (("PRESS", True), ("RELEASE", False)):
-                kmi = km.keymap_items.new(
-                    "paint.bpaint_modifier", key, value, shift=-1, ctrl=-1, alt=-1, oskey=-1
-                )
-                kmi.properties.slot = slot
-                kmi.properties.press = press
-                addon_keymaps.append((km, kmi))
+            kmi = km.keymap_items.new(
+                "paint.bpaint_modifier", key, "RELEASE", shift=-1, ctrl=-1, alt=-1, oskey=-1
+            )
+            kmi.properties.slot = slot
+            addon_keymaps.append((km, kmi))
 
     # Add-on items run before the default Image Paint ones, so these take over Ctrl+LMB
     # (normally the inverted stroke) and move inversion to Alt+LMB.
     # Each add-on item lands at the top of the user keymap, so they are added in reverse:
     # the mask setup must end up first so it runs before the stroke starts.
     km = kc.keymaps.new(name="Image Paint", space_type="EMPTY")
+    for wheel, direction in (("WHEELUPMOUSE", 1), ("WHEELDOWNMOUSE", -1)):
+        for mod in ({"shift": True}, {"ctrl": True}):
+            kmi = km.keymap_items.new("paint.bpaint_shift_wheel", wheel, "PRESS", head=True, **mod)
+            kmi.properties.direction = direction
+            addon_keymaps.append((km, kmi))
     kmi = km.keymap_items.new("paint.image_paint", "LEFTMOUSE", "PRESS", alt=True, ctrl=-1)
     kmi.properties.mode = "INVERT"
     addon_keymaps.append((km, kmi))
     kmi = km.keymap_items.new("paint.image_paint", "LEFTMOUSE", "PRESS", ctrl=True)
     kmi.properties.mode = "NORMAL"
     addon_keymaps.append((km, kmi))
-    kmi = km.keymap_items.new("paint.bpaint_mask_stroke", "LEFTMOUSE", "PRESS", ctrl=True, alt=-1)
+    kmi = km.keymap_items.new("paint.bpaint_stroke", "LEFTMOUSE", "PRESS", ctrl=True, alt=-1)
+    addon_keymaps.append((km, kmi))
+    kmi = km.keymap_items.new("paint.bpaint_stroke", "LEFTMOUSE", "PRESS", shift=True, head=True)
     addon_keymaps.append((km, kmi))
 
 
