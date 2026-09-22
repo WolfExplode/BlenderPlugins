@@ -26,6 +26,7 @@ The first time you enter Texture Paint, Bpaint saves two brushes to the asset li
 - When each stroke starts, its color is set to the average of the image under the brush circle (alpha-weighted, averaged in linear color), and the stroke then paints that color. Repeated strokes blend an area towards its mean.
 - Only the surface you can see under the circle is sampled, so other UV islands and empty texture space never get into the average. Hidden faces are ignored, and it samples whatever is visible behind them.
 - The color is sampled once per stroke, not continuously while dragging.
+- UDIM canvases are supported, including strokes that cross tile boundaries and unsaved paint. Blender's per-point color picker is used for UDIMs, with 19 points spread across the brush circle to limit stroke startup time.
 
 ## World Size
 
@@ -39,6 +40,6 @@ Blender's Scene radius only exists in Sculpt and Grease Pencil. **World Size** d
 
 ## Known limitations
 
-- **Bpaint Average** doesn't sample UDIM images, and only works in the 3D viewport.
+- **Bpaint Average** only works in the 3D viewport. On UDIM canvases, Blender's color picker does not expose alpha, so transparent texels cannot be alpha-weighted as they are on single images.
 
 - **The mask only shows in Solid viewport shading.** In Material Preview and Rendered modes the stencil mask is not drawn, so the mask is still there and still limits painting, but you can't see it. Switch to Solid to see and check what you have masked.

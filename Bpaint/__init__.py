@@ -1,4 +1,5 @@
 import os
+from math import cos, pi, sin
 
 import bpy
 import numpy as np
@@ -12,7 +13,7 @@ from . import world_size
 bl_info = {
     "name": "Bpaint",
     "author": "WXP",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (5, 1, 0),
     "location": "Texture Paint mode",
     "description": "Bbrush-style modifier brushes for Texture Paint: hold Shift for Blur, hold Ctrl for Mask "
@@ -297,6 +298,37 @@ def _paint_uv_layer(context, mesh):
     return mesh.uv_layers.active
 
 
+def _average_udim_samples(context, coords):
+    """Sample live UDIM tiles through Blender's texture-paint color picker.
+
+    Image.pixels only exposes tile 1001, even when another tile is active. Blender's
+    picker uses the tile at each screen position and includes unsaved paint strokes.
+    It sets the brush color as a side effect, so restore it until the mean is ready.
+    """
+    ip = context.tool_settings.image_paint
+    ups = ip.unified_paint_settings
+    color_owner = ups if ups.use_unified_color else ip.brush
+    original = tuple(color_owner.color)
+    # Tiny brushes can place several sample points on the same screen pixel.
+    locations = {}
+    for coord in coords:
+        location = (int(coord.x), int(coord.y))
+        locations[location] = locations.get(location, 0) + 1
+    color_sum = np.zeros(3, dtype=np.float64)
+    sample_count = 0
+    try:
+        for location, count in locations.items():
+            result = bpy.ops.paint.sample_color(location=location, merged=False)
+            if "FINISHED" in result:
+                color_sum += np.asarray(color_owner.color) * count
+                sample_count += count
+    except RuntimeError:
+        return None
+    finally:
+        color_owner.color = original
+    return color_sum / sample_count if sample_count else None
+
+
 def _average_under_cursor(context, event):
     """Mean color of the paint image under the brush circle, in scene linear.
 
@@ -309,7 +341,8 @@ def _average_under_cursor(context, event):
     image = _paint_canvas(context)
     if rv3d is None or obj is None or obj.type != "MESH" or image is None:
         return None
-    if image.source == "TILED" or not image.size[0]:
+    tiled = image.source == "TILED"
+    if not tiled and not image.size[0]:
         return None
 
     obj_eval = obj.evaluated_get(context.evaluated_depsgraph_get())
@@ -383,18 +416,42 @@ def _average_under_cursor(context, event):
     else:
         radius = size_owner.size / 2
 
-    # About 800 rays at any brush size; one per pixel for brushes under 16 px.
-    step = max(1.0, radius / 16)
-    n = int(radius / step)
+    if tiled:
+        # Blender's color picker redraws after each sample. Concentric rings give
+        # broad coverage of the circle with 19 calls instead of a dense grid.
+        offsets = [Vector((0.0, 0.0))]
+        for count, fraction, phase in ((6, 0.45, 0.0), (12, 0.82, pi / 12)):
+            for k in range(count):
+                angle = 2 * pi * k / count + phase
+                offsets.append(Vector((cos(angle), sin(angle))) * radius * fraction)
+    else:
+        # About 800 rays at any brush size; one per pixel for brushes under 16 px.
+        step = max(1.0, radius / 16)
+        n = int(radius / step)
+        offsets = (
+            Vector((i * step, j * step))
+            for i in range(-n, n + 1)
+            for j in range(-n, n + 1)
+            if (i * step) ** 2 + (j * step) ** 2 <= radius * radius
+        )
     uvs = []
-    for i in range(-n, n + 1):
-        for j in range(-n, n + 1):
-            offset = Vector((i * step, j * step))
-            if offset.length_squared > radius * radius:
-                continue
-            hit = cast(center + offset)
-            if hit is not None:
-                uvs.append(uv_at(*hit))
+    sample_coords = []
+    for offset in offsets:
+        coord = center + offset
+        if tiled and not (0 <= coord.x < region.width and 0 <= coord.y < region.height):
+            continue
+        hit = cast(coord)
+        if hit is not None:
+            uv = uv_at(*hit)
+            if tiled:
+                tile_number = 1001 + int(np.floor(uv[0])) + 10 * int(np.floor(uv[1]))
+                tile = image.tiles.get(tile_number)
+                if tile is not None and tile.size[0] and tile.size[1]:
+                    sample_coords.append(coord)
+            else:
+                uvs.append(uv)
+    if tiled:
+        return _average_udim_samples(context, sample_coords) if sample_coords else None
     if not uvs:
         return None
 
