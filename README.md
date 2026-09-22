@@ -8,6 +8,7 @@ A collection of Blender add-ons and scripts for rigging, weight painting, animat
 
 | Add-on | Category | Description |
 |---|---|---|
+| [LateLoader](LateLoader) | System | Keeps slow add-ons out of Blender's startup, loading them once the window is up |
 | [Bweight](Bweight) | Paint | Keyboard-driven weight smooth/sharpen/grow/shrink + scoped auto-normalize |
 | [Cyclic Animation Baker](cyclic%20animation) | Animation | Bake cyclic animation with BPM-driven variable playback speed |
 | [Gizmo Plus](gizmo_plus) | 3D View | Keeps the transform gizmo on screen when its object is off-view |
@@ -26,3 +27,6 @@ Older, unmaintained add-ons live in [`/Archive`](Archive) for reference.
 Each add-on is a single file or self-contained folder. Download it, then in Blender go to
 `Edit → Preferences → Add-ons → Install…` and select it (zip the folder first if it has multiple
 files). Enable the checkbox to activate.
+
+[LateLoader](LateLoader) is the exception: it is a startup script, not an add-on, and has to be copied into
+`scripts/startup/` so it runs before Blender loads add-ons. See its README.
